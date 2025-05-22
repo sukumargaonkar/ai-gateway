@@ -1357,10 +1357,11 @@ spec:
                 description: GCPCredentials is a mechanism to access a backend(s).
                   GCP specific logic will be applied.
                 properties:
-                  OIDCProviderName:
-                    description: Provider refers to the external identity provider
-                      whose credentials your workload is using to authenticate to
-                      Google Cloud.
+                  GCPIdentityProviderName:
+                    description: GCPIdentityProviderName refers to the external identity
+                      provider whose credentials your workload is using to authenticate
+                      to Google Cloud.
+                    minLength: 1
                     type: string
                   aud:
                     description: Aud defines the audience that this ID Token is intended
@@ -2456,13 +2457,22 @@ spec:
                     - provider
                     type: object
                   projectID:
+                    description: ProjectID is the GCP project ID that the backend
+                      is hosted in.
+                    minLength: 1
                     type: string
                   serviceAccountEmail:
+                    description: ServiceAccountEmail is the email address of the service
+                      account to be used to access GCP.
+                    minLength: 1
                     type: string
                   workloadIdentityPoolName:
+                    description: WorkloadIdentityPoolName is the name of the workload
+                      identity pool defined in GCP.
+                    minLength: 1
                     type: string
                 required:
-                - OIDCProviderName
+                - GCPIdentityProviderName
                 - oidc
                 - projectID
                 - serviceAccountEmail

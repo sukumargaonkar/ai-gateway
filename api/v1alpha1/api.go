@@ -536,11 +536,26 @@ type BackendSecurityPolicyOIDC struct {
 
 // BackendSecurityPolicyGCPCredentials contains the supported authentication mechanisms to access GCP.
 type BackendSecurityPolicyGCPCredentials struct {
-	ProjectID                string `json:"projectID"`
-	ServiceAccountEmail      string `json:"serviceAccountEmail"`
+	// ProjectID is the GCP project ID that the backend is hosted in.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ProjectID string `json:"projectID"`
+	// ServiceAccountEmail is the email address of the service account to be used to access GCP.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ServiceAccountEmail string `json:"serviceAccountEmail"`
+	// WorkloadIdentityPoolName is the name of the workload identity pool defined in GCP.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	WorkloadIdentityPoolName string `json:"workloadIdentityPoolName"`
-	// Provider refers to the external identity provider whose credentials your workload is using to authenticate to Google Cloud.
-	OIDCProviderName string `json:"OIDCProviderName"`
+	// GCPIdentityProviderName refers to the external identity provider whose credentials your workload is using to authenticate to Google Cloud.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	GCPIdentityProviderName string `json:"GCPIdentityProviderName"`
 	// BackendSecurityPolicyOIDC is the generic OIDC fields.
 	BackendSecurityPolicyOIDC `json:",inline"`
 }

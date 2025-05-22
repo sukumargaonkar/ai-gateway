@@ -233,6 +233,10 @@ type AzureAuth struct {
 
 // GCPAuth defines the file containing GCP credential that will be mounted to the external proc.
 type GCPAuth struct {
+	// CredentialFileName is the name of the file containing the GCP credential.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	CredentialFileName string `json:"credentialFileName,omitempty"`
 }
 

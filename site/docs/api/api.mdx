@@ -833,22 +833,22 @@ BackendSecurityPolicyGCPCredentials contains the supported authentication mechan
   name="projectID"
   type="string"
   required="true"
-  description=""
+  description="ProjectID is the GCP project ID that the backend is hosted in."
 /><ApiField
   name="serviceAccountEmail"
   type="string"
   required="true"
-  description=""
+  description="ServiceAccountEmail is the email address of the service account to be used to access GCP."
 /><ApiField
   name="workloadIdentityPoolName"
   type="string"
   required="true"
-  description=""
+  description="WorkloadIdentityPoolName is the name of the workload identity pool defined in GCP."
 /><ApiField
-  name="OIDCProviderName"
+  name="GCPIdentityProviderName"
   type="string"
   required="true"
-  description="Provider refers to the external identity provider whose credentials your workload is using to authenticate to Google Cloud."
+  description="GCPIdentityProviderName refers to the external identity provider whose credentials your workload is using to authenticate to Google Cloud."
 /><ApiField
   name="oidc"
   type="[OIDC](https://gateway.envoyproxy.io/docs/api/extension_types/#oidc)"
