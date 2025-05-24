@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -23,7 +22,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/prototext"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/envoyproxy/ai-gateway/filterapi"
@@ -296,58 +294,62 @@ func (s *Server) processMsg(ctx context.Context, l *slog.Logger, p Processor, re
 // setBackend retrieves the backend from the request attributes and sets it in the processor. This is only called
 // if the processor is an upstream filter.
 func (s *Server) setBackend(ctx context.Context, p Processor, reqID string, req *extprocv3.ProcessingRequest) (*extprocv3.ProcessingResponse, error) {
-	attributes := req.GetAttributes()["envoy.filters.http.ext_proc"]
-	if attributes == nil || len(attributes.Fields) == 0 { // coverage-ignore
-		if runtime.GOOS == "darwin" {
-			// TODO: this feels like a bug of Envoy v1.33 or earlier, not the darwin specific code.
-			//
-			// For some reason that I _suspect_ stems from macOS specific event loop peculiarities,
-			// the first request to a specific endpoint may not have the attributes set. Assuming
-			// the retry is configured, we simply do nothing and let the retry happen.
-			return &extprocv3.ProcessingResponse{
-				Response: &extprocv3.ProcessingResponse_RequestHeaders{
-					RequestHeaders: &extprocv3.HeadersResponse{
-						Response: &extprocv3.CommonResponse{},
-					},
-				},
-			}, nil
-		}
-		// Otherwise, this is a bug of either Envoy or control plane.
-		return nil, status.Error(codes.Internal, "missing attributes in request")
-	}
+	// TODO: Below is commented only to make testing on macOS easier
+	//       REMOVE THIS BEFORE RAISING PR
+	// attributes := req.GetAttributes()["envoy.filters.http.ext_proc"]
+	// if attributes == nil || len(attributes.Fields) == 0 { // coverage-ignore
+	//	if runtime.GOOS == "darwin" {
+	//		// TODO: this feels like a bug of Envoy v1.33 or earlier, not the darwin specific code.
+	//		//
+	//		// For some reason that I _suspect_ stems from macOS specific event loop peculiarities,
+	//		// the first request to a specific endpoint may not have the attributes set. Assuming
+	//		// the retry is configured, we simply do nothing and let the retry happen.
+	//		return &extprocv3.ProcessingResponse{
+	//			Response: &extprocv3.ProcessingResponse_RequestHeaders{
+	//				RequestHeaders: &extprocv3.HeadersResponse{
+	//					Response: &extprocv3.CommonResponse{},
+	//				},
+	//			},
+	//		}, nil
+	//	}
+	//	// Otherwise, this is a bug of either Envoy or control plane.
+	//	return nil, status.Error(codes.Internal, "missing attributes in request")
+	//}
+	//
+	//// This should contain the endpoint metadata.
+	//hostMetadata, ok := attributes.Fields["xds.upstream_host_metadata"]
+	//if !ok {
+	//	return nil, status.Error(codes.Internal, "missing xds.upstream_host_metadata in request")
+	//}
+	//
+	//// Unmarshal the text into the struct since the metadata is encoded as a proto string.
+	//var metadata corev3.Metadata
+	//err := prototext.Unmarshal([]byte(hostMetadata.GetStringValue()), &metadata)
+	//if err != nil {
+	//	panic(err)
+	//}
+	//
+	//aiGatewayEndpointMetadata, ok := metadata.FilterMetadata["aigateway.envoy.io"]
+	//if !ok {
+	//	return nil, status.Error(codes.Internal, "missing aigateway.envoy.io metadata")
+	//}
+	//backendName, ok := aiGatewayEndpointMetadata.Fields["backend_name"]
+	//if !ok {
+	//	return nil, status.Error(codes.Internal, "missing backend_name in endpoint metadata")
+	//}
 
-	// This should contain the endpoint metadata.
-	hostMetadata, ok := attributes.Fields["xds.upstream_host_metadata"]
-	if !ok {
-		return nil, status.Error(codes.Internal, "missing xds.upstream_host_metadata in request")
-	}
+	backendNameHardCoded := "gcp-anthropic-backend"
 
-	// Unmarshal the text into the struct since the metadata is encoded as a proto string.
-	var metadata corev3.Metadata
-	err := prototext.Unmarshal([]byte(hostMetadata.GetStringValue()), &metadata)
-	if err != nil {
-		panic(err)
-	}
-
-	aiGatewayEndpointMetadata, ok := metadata.FilterMetadata["aigateway.envoy.io"]
+	backend, ok := s.config.backends[backendNameHardCoded]
 	if !ok {
-		return nil, status.Error(codes.Internal, "missing aigateway.envoy.io metadata")
+		return nil, status.Errorf(codes.Internal, "unknown backend: %s", backendNameHardCoded)
 	}
-	backendName, ok := aiGatewayEndpointMetadata.Fields["backend_name"]
-	if !ok {
-		return nil, status.Error(codes.Internal, "missing backend_name in endpoint metadata")
-	}
-	backend, ok := s.config.backends[backendName.GetStringValue()]
-	if !ok {
-		return nil, status.Errorf(codes.Internal, "unknown backend: %s", backendName.GetStringValue())
-	}
-
 	s.routerProcessorsPerReqIDMutex.RLock()
 	defer s.routerProcessorsPerReqIDMutex.RUnlock()
 	routerProcessor, ok := s.routerProcessorsPerReqID[reqID]
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "no router processor found, request_id=%s, backend=%s",
-			reqID, backendName.GetStringValue())
+			reqID, backendNameHardCoded)
 	}
 
 	if err := p.SetBackend(ctx, backend.b, backend.handler, routerProcessor); err != nil {

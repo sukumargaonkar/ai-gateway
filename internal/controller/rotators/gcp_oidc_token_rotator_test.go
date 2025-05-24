@@ -11,25 +11,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	aigv1a1 "github.com/envoyproxy/ai-gateway/api/v1alpha1"
 	"github.com/envoyproxy/ai-gateway/internal/controller/tokenprovider"
 )
 
-func TestAzureTokenRotator_Rotate(t *testing.T) {
+func TestGCPTokenRotator_Rotate(t *testing.T) {
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypes(corev1.SchemeGroupVersion, &corev1.Secret{})
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	t.Run("failed to get azure token", func(t *testing.T) {
+	t.Run("failed to get gcp token", func(t *testing.T) {
 		now := time.Now()
 		oneHourBeforeNow := now.Add(-1 * time.Hour)
 		twoHourAfterNow := now.Add(2 * time.Hour)
-		mockProvider := tokenprovider.NewMockTokenProvider("fake-token", twoHourAfterNow, fmt.Errorf("failed to get azure access token"))
+		mockProvider := tokenprovider.NewMockTokenProvider("fake-token", twoHourAfterNow, fmt.Errorf("failed to get gcp access token"))
 
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -40,18 +42,21 @@ func TestAzureTokenRotator_Rotate(t *testing.T) {
 				},
 			},
 			Data: map[string][]byte{
-				azureAccessTokenKey: []byte("some-azure-access-token"),
+				gcpAccessTokenKey: []byte("some-gcp-access-token"),
 			},
 		}
 		err := client.Create(context.Background(), secret)
 		require.NoError(t, err)
 
-		rotator := &azureTokenRotator{
+		rotator := &gcpOIDCTokenRotator{
 			client:                         client,
-			backendSecurityPolicyNamespace: "default",
+			kube:                           nil,
+			logger:                         logr.Logger{},
 			backendSecurityPolicyName:      "test-policy",
+			backendSecurityPolicyNamespace: "default",
+			gcpCredentials:                 aigv1a1.BackendSecurityPolicyGCPCredentials{},
 			preRotationWindow:              5 * time.Minute,
-			tokenProvider:                  mockProvider,
+			oidcProvider:                   mockProvider,
 		}
 
 		_, err = rotator.Rotate(context.Background())
@@ -65,13 +70,13 @@ func TestAzureTokenRotator_Rotate(t *testing.T) {
 		twoHourAfterNow := now.Add(2 * time.Hour)
 		mockProvider := tokenprovider.NewMockTokenProvider("fake-token", twoHourAfterNow, nil)
 
-		rotator := &azureTokenRotator{
-			client: client,
-
-			backendSecurityPolicyNamespace: "default",
+		rotator := &gcpOIDCTokenRotator{
+			client:                         client,
 			backendSecurityPolicyName:      "test-policy",
+			backendSecurityPolicyNamespace: "default",
+			gcpCredentials:                 aigv1a1.BackendSecurityPolicyGCPCredentials{},
 			preRotationWindow:              5 * time.Minute,
-			tokenProvider:                  mockProvider,
+			oidcProvider:                   mockProvider,
 		}
 		expiration, err := rotator.Rotate(context.Background())
 		require.NoError(t, err)
@@ -97,17 +102,18 @@ func TestAzureTokenRotator_Rotate(t *testing.T) {
 				},
 			},
 			Data: map[string][]byte{
-				azureAccessTokenKey: []byte("some-azure-access-token"),
+				gcpAccessTokenKey: []byte("some-gcp-access-token"),
 			},
 		}
 		err := client.Create(context.Background(), secret)
 		require.NoError(t, err)
 
-		rotator := &azureTokenRotator{
+		rotator := &gcpOIDCTokenRotator{
 			client:                         client,
-			tokenProvider:                  mockProvider,
-			backendSecurityPolicyNamespace: "default",
 			backendSecurityPolicyName:      "test-policy",
+			backendSecurityPolicyNamespace: "default",
+			gcpCredentials:                 aigv1a1.BackendSecurityPolicyGCPCredentials{},
+			oidcProvider:                   mockProvider,
 			preRotationWindow:              5 * time.Minute,
 		}
 
@@ -120,16 +126,17 @@ func TestAzureTokenRotator_Rotate(t *testing.T) {
 	})
 }
 
-func TestAzureTokenRotator_GetPreRotationTime(t *testing.T) {
+func TestGCPTokenRotator_GetPreRotationTime(t *testing.T) {
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypes(corev1.SchemeGroupVersion, &corev1.Secret{})
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	rotator := &azureTokenRotator{
+	rotator := &gcpOIDCTokenRotator{
 		client:                         client,
 		preRotationWindow:              5 * time.Minute,
-		backendSecurityPolicyNamespace: "default",
 		backendSecurityPolicyName:      "test-policy",
+		backendSecurityPolicyNamespace: "default",
+		gcpCredentials:                 aigv1a1.BackendSecurityPolicyGCPCredentials{},
 	}
 
 	now := time.Now()
@@ -148,7 +155,7 @@ func TestAzureTokenRotator_GetPreRotationTime(t *testing.T) {
 					Namespace: "default",
 				},
 				Data: map[string][]byte{
-					azureAccessTokenKey: []byte("some-azure-access-token"),
+					gcpAccessTokenKey: []byte("some-gcp-access-token"),
 				},
 			},
 			expectedTime:  time.Time{},
@@ -165,7 +172,7 @@ func TestAzureTokenRotator_GetPreRotationTime(t *testing.T) {
 					},
 				},
 				Data: map[string][]byte{
-					azureAccessTokenKey: []byte("some-azure-access-token"),
+					gcpAccessTokenKey: []byte("some-gcp-access-token"),
 				},
 			},
 			expectedTime:  now.Add(2 * time.Hour),
@@ -180,11 +187,11 @@ func TestAzureTokenRotator_GetPreRotationTime(t *testing.T) {
 
 			got, err := rotator.GetPreRotationTime(context.Background())
 			if (err != nil) != tt.expectedError {
-				t.Errorf("AzureTokenRotator.GetPreRotationTime() error = %v, expectedError %v", err, tt.expectedError)
+				t.Errorf("GCPTokenRotator.GetPreRotationTime() error = %v, expectedError %v", err, tt.expectedError)
 				return
 			}
 			if !tt.expectedTime.IsZero() && got.Compare(tt.expectedTime) >= 0 {
-				t.Errorf("AzureTokenRotator.GetPreRotationTime() = %v, expected %v", got, tt.expectedTime)
+				t.Errorf("GCPTokenRotator.GetPreRotationTime() = %v, expected %v", got, tt.expectedTime)
 			}
 			err = client.Delete(context.Background(), tt.secret)
 			require.NoError(t, err)
@@ -192,11 +199,11 @@ func TestAzureTokenRotator_GetPreRotationTime(t *testing.T) {
 	}
 }
 
-func TestAzureTokenRotator_IsExpired(t *testing.T) {
+func TestGCPTokenRotator_IsExpired(t *testing.T) {
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypes(corev1.SchemeGroupVersion, &corev1.Secret{})
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
-	rotator := &azureTokenRotator{
+	rotator := &gcpOIDCTokenRotator{
 		client: client,
 	}
 	tests := []struct {
@@ -219,25 +226,8 @@ func TestAzureTokenRotator_IsExpired(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := rotator.IsExpired(tt.expiration); got != tt.expect {
-				t.Errorf("AzureTokenRotator.IsExpired() = %v, expect %v", got, tt.expect)
+				t.Errorf("GCPTokenRotator.IsExpired() = %v, expect %v", got, tt.expect)
 			}
 		})
 	}
-}
-
-func TestPopulateAccessTokenInSecret(t *testing.T) {
-	secret := &corev1.Secret{}
-	expiration := time.Now()
-
-	azureToken := tokenprovider.TokenExpiry{Token: "some-azure-token", ExpiresAt: expiration}
-	populateAccessTokenInSecret(secret, &azureToken, azureAccessTokenKey)
-
-	annotation, ok := secret.Annotations[ExpirationTimeAnnotationKey]
-	require.True(t, ok)
-	require.Equal(t, expiration.Format(time.RFC3339), annotation)
-
-	require.Len(t, secret.Data, 1)
-	val, ok := secret.Data[azureAccessTokenKey]
-	require.True(t, ok)
-	require.Equal(t, "some-azure-token", string(val))
 }
