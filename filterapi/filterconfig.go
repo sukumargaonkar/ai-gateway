@@ -134,9 +134,11 @@ type VersionedAPISchema struct {
 type APISchemaName string
 
 const (
-	APISchemaOpenAI      APISchemaName = "OpenAI"
-	APISchemaAWSBedrock  APISchemaName = "AWSBedrock"
-	APISchemaAzureOpenAI APISchemaName = "AzureOpenAI"
+	APISchemaOpenAI       APISchemaName = "OpenAI"
+	APISchemaAWSBedrock   APISchemaName = "AWSBedrock"
+	APISchemaAzureOpenAI  APISchemaName = "AzureOpenAI"
+	APISchemaGCPGemini    APISchemaName = "GCPGemini"
+	APISchemaGCPAnthropic APISchemaName = "GCPAnthropic"
 )
 
 // HeaderMatch is an alias for HTTPHeaderMatch of the Gateway API.

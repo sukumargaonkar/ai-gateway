@@ -1,0 +1,308 @@
+// Copyright Envoy AI Gateway Authors
+// SPDX-License-Identifier: Apache-2.0
+// The full text of the Apache license is available in the LICENSE file at
+// the root of the repo.
+
+// Copyright Envoy AI Gateway Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package translator
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"strconv"
+
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+
+	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
+)
+
+// TODO: support for "system"? https://docs.anthropic.com/en/api/messages#tool-use
+
+// Anthropic request/response structs
+type AnthropicContent struct {
+	Type   string                `json:"type"`
+	Text   string                `json:"text"`
+	Source *anthropicImageSource `json:"source,omitempty"`
+}
+
+// supported in claude 3
+type anthropicImageSource struct {
+	Type      string `json:"type"`       // always "base64"
+	MediaType string `json:"media_type"` // e.g. "image/jpeg"
+	Data      string `json:"data"`       // base64-encoded image data
+}
+
+type anthropicUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+type anthropicResponse struct {
+	Content    []AnthropicContent `json:"content"`
+	ID         string             `json:"id"`
+	Model      string             `json:"model"`
+	Role       string             `json:"role"`
+	StopReason string             `json:"stop_reason"`
+	StopSeq    *string            `json:"stop_sequence"`
+	Type       string             `json:"type"`
+	Usage      anthropicUsage     `json:"usage"`
+}
+
+type anthropicMessage struct {
+	Role    string             `json:"role"`
+	Content []AnthropicContent `json:"content"`
+}
+
+type anthropicRequest struct {
+	AnthropicVersion string             `json:"anthropic_version"`
+	Messages         []anthropicMessage `json:"messages"`
+	MaxTokens        int                `json:"max_tokens,omitempty"`
+	Stream           bool               `json:"stream,omitempty"`
+}
+
+// NewChatCompletionOpenAIToGCPAnthropicTranslator implements [Factory] for OpenAI to GCP Gemini translation.
+func NewChatCompletionOpenAIToGCPAnthropicTranslator() OpenAIChatCompletionTranslator {
+	return &openAIToGCPAnthropicTranslatorV1ChatCompletion{}
+}
+
+type openAIToGCPAnthropicTranslatorV1ChatCompletion struct{}
+
+// TODO: 3. Implement retry logic for pause_turn(?) https://docs.anthropic.com/en/api/handling-stop-reasons#3-implement-retry-logic-for-pause-turn
+// TODO: remove hard code
+func anthropicToOpenAIFinishReason(reason string) openai.ChatCompletionChoicesFinishReason {
+	switch reason {
+	// TODO: "pause_turn" Used with server tools like web search when Claude needs to pause a long-running operation.
+	// TODO: "refusal" Claude refused to generate a response due to safety concerns.
+	// TODO: "
+	// The most common stop reason. Indicates Claude finished its response naturally.
+	// or Claude encountered one of your custom stop sequences.
+	case "end_turn", "stop_sequence":
+		return "stop"
+	case "max_tokens": // Claude stopped because it reached the max_tokens limit specified in your request.
+		return "length"
+	case "tool_use":
+		return "tool_calls"
+	default:
+		// TODO: change/fix/test
+		return openai.ChatCompletionChoicesFinishReason(reason)
+	}
+}
+
+// Helper: Convert OpenAI message content to Anthropic content
+func openAIToAnthropicContent(content interface{}) ([]AnthropicContent, error) {
+	if v, ok := content.(string); ok {
+		return []AnthropicContent{{Type: "text", Text: v}}, nil
+	} else if contents, ok := content.([]openai.ChatCompletionContentPartUserUnionParam); ok {
+		resultContent := make([]AnthropicContent, 0, len(contents))
+		for i := range contents {
+			contentPart := &contents[i]
+			if contentPart.TextContent != nil {
+				resultContent = append(resultContent, AnthropicContent{
+					Type: "text",
+					Text: contents[i].TextContent.Text,
+				})
+			} else if contentPart.ImageContent != nil {
+				imageContentPart := contentPart.ImageContent
+				contentType, b, err := parseDataURI(imageContentPart.ImageURL.URL)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse image URL: %w", err)
+				}
+				var format string
+				format = contentType
+				//TODO:
+				// if contentType == "image/png", "image/jpeg", "image/gif", "image/webp", then use that value, otherwise not supported
+				resultContent = append(resultContent, AnthropicContent{
+					Type: "source",
+					Source: &anthropicImageSource{
+						Type:      "base64", // only thing supported now
+						MediaType: format,
+						Data:      string(b),
+					},
+				})
+			}
+		}
+		return resultContent, nil
+	}
+	return nil, fmt.Errorf("unsupported OpenAI content type: %T", content)
+}
+
+func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest, anthropicReq *anthropicRequest) error {
+	anthropicReq.Messages = make([]anthropicMessage, 0, len(openAIReq.Messages))
+	for i := range openAIReq.Messages {
+		msg := &openAIReq.Messages[i]
+		switch msg.Type {
+		case openai.ChatMessageRoleUser:
+			message := msg.Value.(openai.ChatCompletionUserMessageParam)
+			content, err := openAIToAnthropicContent(message.Content.Value)
+			if err != nil {
+				return err
+			}
+			anthropicMsg := anthropicMessage{
+				Role:    openai.ChatMessageRoleUser,
+				Content: content,
+			}
+			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
+		case openai.ChatMessageRoleAssistant:
+			message := msg.Value.(openai.ChatCompletionAssistantMessageParam)
+			content, err := openAIToAnthropicContent(message.Content.Value)
+			if err != nil {
+				return err
+			}
+			anthropicMsg := anthropicMessage{
+				Role:    openai.ChatMessageRoleAssistant,
+				Content: content,
+			}
+			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
+			//TODO:  Note that if you want to include a system prompt, you can use the top-level system parameter — there is no "system" role for input messages in the Messages API.
+		//case openai.ChatMessageRoleSystem:
+		//	systemMessage := msg.Value.(openai.ChatCompletionSystemMessageParam)
+		//	anthropicMsg := anthropicMessage{
+		//		Role:    openai.ChatMessageRoleSystem,
+		//		Content: openAIToAnthropicContent(systemMessage.Content.Value),
+		//	}
+		//	anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
+		default:
+			return fmt.Errorf("unsupported OpenAI role type: %s", msg.Type)
+		}
+	}
+	return nil
+}
+
+// RequestBody implements [Translator.RequestBody] for GCP.
+func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, onRetry bool) (
+	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
+) {
+	// TODO: Implement actual translation from OpenAI to Anthropic request.
+	// For now we just hardcoded an example request
+	// TODO: most changes from here
+	region := "us-east5"
+	project := "bb-llm-gateway-dev"
+	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/claude-3-5-haiku@20241022:rawPredict", region, project, region)
+
+	//TODO: update forming the anthropic req with inference config,
+	maxTokens := 256
+	if openAIReq.MaxTokens != nil {
+		maxTokens = int(*openAIReq.MaxTokens)
+	}
+	anthropicReq := anthropicRequest{
+		AnthropicVersion: "vertex-2023-10-16", //TODO: make var
+		MaxTokens:        maxTokens,
+		Stream:           false, // TODO: add support for streaming
+	}
+
+	// Transform OpenAI messages to Anthropic messages
+	err = openAIMessageToGCPAnthropicMessage(openAIReq, &anthropicReq)
+
+	body, err := json.Marshal(anthropicReq)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	headerMutation = &extprocv3.HeaderMutation{
+		SetHeaders: []*corev3.HeaderValueOption{
+			{
+				Header: &corev3.HeaderValue{
+					Key:   ":path",
+					Value: gcpReqPath,
+				},
+			},
+			{
+				Header: &corev3.HeaderValue{
+					Key:   "content-length",
+					Value: strconv.Itoa(len(body)),
+				},
+			},
+		},
+	}
+	bodyMutation = &extprocv3.BodyMutation{
+		Mutation: &extprocv3.BodyMutation_Body{Body: body},
+	}
+	return headerMutation, bodyMutation, nil
+
+	//	gcpReqBody := []byte(`{
+	//  "anthropic_version": "vertex-2023-10-16",
+	//  "messages": [
+	//    {
+	//      "role": "user",
+	//      "content": [
+	//        {
+	//          "type": "text",
+	//          "text": "What is in this image?"
+	//        }
+	//      ]
+	//    }
+	//  ],
+	//  "max_tokens": 256,
+	//  "stream": false
+	//}`)
+
+}
+
+// ResponseHeaders implements [Translator.ResponseHeaders].
+func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers map[string]string) (
+	headerMutation *extprocv3.HeaderMutation, err error,
+) {
+	// TODO: Implement if needed.
+	return nil, nil
+}
+
+// ResponseError implements [Translator.ResponseError].
+func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseError(respHeaders map[string]string, body interface{}) (
+	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
+) {
+	// TODO: Implement error translation.
+	return nil, nil, nil
+}
+
+// ResponseBody implements [Translator.ResponseBody] for GCP Anthropic.
+func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeaders map[string]string, body io.Reader, endOfStream bool) (
+	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, tokenUsage LLMTokenUsage, err error,
+) {
+	var anthropicResp anthropicResponse
+	buf := new(bytes.Buffer)
+	_, err = buf.ReadFrom(body)
+	if err != nil {
+		return nil, nil, tokenUsage, err
+	}
+	if err := json.Unmarshal(buf.Bytes(), &anthropicResp); err != nil {
+		return nil, nil, tokenUsage, err
+	}
+
+	// Concatenate all text parts (usually just one)
+	var content string
+	for _, part := range anthropicResp.Content {
+		if part.Type == "text" {
+			content += part.Text
+		} //TODO: else?
+	}
+
+	openaiResp := openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionResponseChoice{
+			{
+				Message: openai.ChatCompletionResponseChoiceMessage{
+					Role:    anthropicResp.Role,
+					Content: &content,
+				},
+				FinishReason: anthropicToOpenAIFinishReason(anthropicResp.StopReason),
+			},
+		},
+		Usage: openai.ChatCompletionResponseUsage{
+			PromptTokens:     anthropicResp.Usage.InputTokens,
+			CompletionTokens: anthropicResp.Usage.OutputTokens,
+			TotalTokens:      anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens,
+		},
+	}
+
+	respBody, err := json.Marshal(openaiResp)
+	if err != nil {
+		return nil, nil, tokenUsage, err
+	}
+	bodyMutation = &extprocv3.BodyMutation{
+		Mutation: &extprocv3.BodyMutation_Body{Body: respBody},
+	}
+	return nil, bodyMutation, tokenUsage, nil
+}

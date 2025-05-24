@@ -110,7 +110,7 @@ func (r *azureTokenRotator) Rotate(ctx context.Context) (time.Time, error) {
 				Type: corev1.SecretTypeOpaque,
 				Data: make(map[string][]byte),
 			}
-			populateAzureAccessToken(secret, &azureToken)
+			populateAccessTokenInSecret(secret, &azureToken, azureAccessTokenKey)
 			err = r.client.Create(ctx, secret)
 			if err != nil {
 				r.logger.Error(err, "failed to create azure access token", "namespace", bspNamespace, "name", bspName)
@@ -123,21 +123,11 @@ func (r *azureTokenRotator) Rotate(ctx context.Context) (time.Time, error) {
 	}
 	r.logger.Info("updating azure access token secret", "namespace", bspNamespace, "name", bspName)
 
-	populateAzureAccessToken(secret, &azureToken)
+	populateAccessTokenInSecret(secret, &azureToken, azureAccessTokenKey)
 	err = r.client.Update(ctx, secret)
 	if err != nil {
 		r.logger.Error(err, "failed to update azure access token", "namespace", bspNamespace, "name", bspName)
 		return time.Time{}, err
 	}
 	return azureToken.ExpiresAt, nil
-}
-
-// populateAzureAccessToken updates the secret with the Azure access token.
-func populateAzureAccessToken(secret *corev1.Secret, token *tokenprovider.TokenExpiry) {
-	updateExpirationSecretAnnotation(secret, token.ExpiresAt)
-
-	if secret.Data == nil {
-		secret.Data = make(map[string][]byte)
-	}
-	secret.Data[azureAccessTokenKey] = []byte(token.Token)
 }

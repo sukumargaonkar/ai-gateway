@@ -152,6 +152,10 @@ func (c *chatCompletionProcessorUpstreamFilter) selectTranslator(out filterapi.V
 		c.translator = translator.NewChatCompletionOpenAIToAWSBedrockTranslator()
 	case filterapi.APISchemaAzureOpenAI:
 		c.translator = translator.NewChatCompletionOpenAIToAzureOpenAITranslator(out.Version)
+	case filterapi.APISchemaGCPGemini:
+		c.translator = translator.NewChatCompletionOpenAIToGCPGeminiTranslator()
+	case filterapi.APISchemaGCPAnthropic:
+		c.translator = translator.NewChatCompletionOpenAIToGCPAnthropicTranslator()
 	default:
 		return fmt.Errorf("unsupported API schema: backend=%s", out)
 	}
@@ -164,7 +168,20 @@ func (c *chatCompletionProcessorUpstreamFilter) selectTranslator(out filterapi.V
 // So, we simply do the translation and upstream auth at this stage, and send them back to Envoy
 // with the status CONTINUE_AND_REPLACE. This will allows Envoy to not send the request body again
 // to the extproc.
-func (c *chatCompletionProcessorUpstreamFilter) ProcessRequestHeaders(ctx context.Context, _ *corev3.HeaderMap) (res *extprocv3.ProcessingResponse, err error) {
+func (c *chatCompletionProcessorUpstreamFilter) ProcessRequestHeaders(context.Context, *corev3.HeaderMap) (res *extprocv3.ProcessingResponse, err error) {
+	return &extprocv3.ProcessingResponse{
+		Response: &extprocv3.ProcessingResponse_RequestHeaders{
+			RequestHeaders: &extprocv3.HeadersResponse{
+				Response: &extprocv3.CommonResponse{
+					Status: extprocv3.CommonResponse_CONTINUE,
+				},
+			},
+		},
+	}, nil
+}
+
+// ProcessRequestBody implements [Processor.ProcessRequestBody].
+func (c *chatCompletionProcessorUpstreamFilter) ProcessRequestBody(ctx context.Context, _ *extprocv3.HttpBody) (res *extprocv3.ProcessingResponse, err error) {
 	defer func() {
 		if err != nil {
 			c.metrics.RecordRequestCompletion(ctx, false)
@@ -193,20 +210,15 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessRequestHeaders(ctx contex
 	}
 
 	return &extprocv3.ProcessingResponse{
-		Response: &extprocv3.ProcessingResponse_RequestHeaders{
-			RequestHeaders: &extprocv3.HeadersResponse{
+		Response: &extprocv3.ProcessingResponse_RequestBody{
+			RequestBody: &extprocv3.BodyResponse{
 				Response: &extprocv3.CommonResponse{
-					HeaderMutation: headerMutation, BodyMutation: bodyMutation,
-					Status: extprocv3.CommonResponse_CONTINUE_AND_REPLACE,
+					HeaderMutation: headerMutation,
+					BodyMutation:   bodyMutation,
 				},
 			},
 		},
 	}, nil
-}
-
-// ProcessRequestBody implements [Processor.ProcessRequestBody].
-func (c *chatCompletionProcessorUpstreamFilter) ProcessRequestBody(context.Context, *extprocv3.HttpBody) (res *extprocv3.ProcessingResponse, err error) {
-	panic("BUG: ProcessRequestBody should not be called in the upstream filter")
 }
 
 // ProcessResponseHeaders implements [Processor.ProcessResponseHeaders].
