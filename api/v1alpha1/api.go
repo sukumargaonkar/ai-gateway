@@ -534,30 +534,64 @@ type BackendSecurityPolicyOIDC struct {
 	Aud string `json:"aud,omitempty"`
 }
 
-// BackendSecurityPolicyGCPCredentials contains the supported authentication mechanisms to access GCP.
-type BackendSecurityPolicyGCPCredentials struct {
-	// ProjectID is the GCP project ID that the backend is hosted in.
+type GCPWorkLoadIdentityFederationConfig struct {
+
+	// ProjectID is the GCP project ID.
 	//
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	ProjectID string `json:"projectID"`
-	// ServiceAccountEmail is the email address of the service account to be used to access GCP.
+
+	// WorkloadIdentityProvider is the external auth provider to be used to authenticate against GCP.
+	// https://cloud.google.com/iam/docs/workload-identity-federation?hl=en
+	// Currently only OIDC is supported.
 	//
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=1
-	ServiceAccountEmail string `json:"serviceAccountEmail"`
+	WorkloadIdentityProvider GCPWorkloadIdentityProvider `json:"workloadIdentityProvider"`
+
 	// WorkloadIdentityPoolName is the name of the workload identity pool defined in GCP.
+	// https://cloud.google.com/iam/docs/workload-identity-federation?hl=en
 	//
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	WorkloadIdentityPoolName string `json:"workloadIdentityPoolName"`
-	// GCPIdentityProviderName refers to the external identity provider whose credentials your workload is using to authenticate to Google Cloud.
+
+	// ServiceAccountImpersonation is the service account impersonation configuration.
+	// This is used to impersonate a service account when getting access token.
+	//
+	// +optional
+	ServiceAccountImpersonation *GCPServiceAccountImpersonationConfig `json:"serviceAccountImpersonation"`
+}
+
+type GCPWorkloadIdentityProvider struct {
+	// Name of the external identity provider as registered on Google Cloud Platform.
 	//
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
-	GCPIdentityProviderName string `json:"GCPIdentityProviderName"`
-	// BackendSecurityPolicyOIDC is the generic OIDC fields.
-	BackendSecurityPolicyOIDC `json:",inline"`
+	Name string `json:"name"`
+
+	// OIDCConfig is the generic OIDCConfig fields.
+	//
+	// +kubebuilder:validation:Required
+	OIDCConfig BackendSecurityPolicyOIDC `json:"oidcConfig,inline"`
+}
+
+type GCPServiceAccountImpersonationConfig struct {
+	// ServiceAccountName is the name of the service account to impersonate.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ServiceAccountName string `json:"serviceAccountName"`
+	// ServiceAccountProjectName is the project name in which the service account is registered.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ServiceAccountProjectName string `json:"serviceAccountProjectName"`
+}
+
+// BackendSecurityPolicyGCPCredentials contains the supported authentication mechanisms to access GCP.
+type BackendSecurityPolicyGCPCredentials struct {
+	WorkLoadIdentityFederationConfig GCPWorkLoadIdentityFederationConfig `json:"workLoadIdentityFederationConfig"`
 }
 
 // BackendSecurityPolicyAzureCredentials contains the supported authentication mechanisms to access Azure.
