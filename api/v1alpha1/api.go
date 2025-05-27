@@ -535,7 +535,6 @@ type BackendSecurityPolicyOIDC struct {
 }
 
 type GCPWorkLoadIdentityFederationConfig struct {
-
 	// ProjectID is the GCP project ID.
 	//
 	// +kubebuilder:validation:Required
