@@ -22,7 +22,11 @@ import (
 )
 
 // TODO: support for "system"? https://docs.anthropic.com/en/api/messages#tool-use
-// TODO: support for mcp server field
+// TODO: support for mcp server field, server tier
+//TODO: support stream
+
+// currently a requirement for GCP Vertex / Anthropic API https://docs.anthropic.com/en/api/claude-on-vertex-ai
+const anthropicVersion = "vertex-2023-10-16"
 
 // Anthropic request/response structs
 type AnthropicContent struct {
@@ -178,12 +182,11 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, onRetry bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
-	// TODO: Implement actual translation from OpenAI to Anthropic request.
 	// For now we just hardcoded an example request
-	// TODO: most changes from here
 	region := "us-east5"
 	project := "bb-llm-gateway-dev"
-	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/claude-3-5-haiku@20241022:rawPredict", region, project, region)
+	model := "claude-3-5-haiku@20241022" // TODO: make var
+	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", region, project, region, model)
 
 	//TODO: update forming the anthropic req with inference config,
 	maxTokens := 256
@@ -191,7 +194,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 		maxTokens = int(*openAIReq.MaxTokens)
 	}
 	anthropicReq := anthropicRequest{
-		AnthropicVersion: "vertex-2023-10-16", //TODO: make var
+		AnthropicVersion: "vertex-2023-10-16",
 		MaxTokens:        maxTokens,
 		Stream:           false, // TODO: add support for streaming
 	}
