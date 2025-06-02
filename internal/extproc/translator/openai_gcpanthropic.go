@@ -22,6 +22,7 @@ import (
 )
 
 // TODO: support for "system"? https://docs.anthropic.com/en/api/messages#tool-use
+// TODO: support for mcp server field
 
 // Anthropic request/response structs
 type AnthropicContent struct {
@@ -80,6 +81,7 @@ func anthropicToOpenAIFinishReason(reason string) openai.ChatCompletionChoicesFi
 	// TODO: "
 	// The most common stop reason. Indicates Claude finished its response naturally.
 	// or Claude encountered one of your custom stop sequences.
+	// TODO: remove hard coding
 	case "end_turn", "stop_sequence":
 		return "stop"
 	case "max_tokens": // Claude stopped because it reached the max_tokens limit specified in your request.
