@@ -35,7 +35,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 				MaxTokens: ptrToInt64(10),
 			},
 			output: anthropicRequest{
-				AnthropicVersion: "vertex-2023-10-16",
+				AnthropicVersion: anthropicVersion,
 				Messages: []anthropicMessage{
 					{
 						Role: "user",
@@ -70,7 +70,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 				MaxTokens: ptrToInt64(5),
 			},
 			output: anthropicRequest{
-				AnthropicVersion: "vertex-2023-10-16",
+				AnthropicVersion: anthropicVersion,
 				Messages: []anthropicMessage{
 					{
 						Role: "user",
@@ -109,56 +109,3 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 }
 
 func ptrToInt64(i int64) *int64 { return &i }
-
-//
-//import (
-//	"encoding/json"
-//	"fmt"
-//	"testing"
-//
-//	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
-//	"github.com/stretchr/testify/require"
-//)
-//
-//func TestRequestBody_BasicUserMessage(t *testing.T) {
-//	translator := NewChatCompletionOpenAIToGCPAnthropicTranslator()
-//
-//	// Prepare a basic OpenAI chat completion request
-//	userMsg := openai.ChatCompletionMessageParamUnion{
-//		Value: openai.ChatCompletionUserMessageParam{
-//			Content: openai.StringOrUserRoleContentUnion{Value: "Hello, how are you?"},
-//		}, //TODO: do we need Role value here?
-//		Type: openai.ChatMessageRoleUser,
-//	}
-//
-//	maxTokens := int64(10)
-//	req := &openai.ChatCompletionRequest{
-//		Messages:  []openai.ChatCompletionMessageParamUnion{userMsg},
-//		MaxTokens: &maxTokens,
-//	}
-//
-//	_, bodyMutation, err := translator.RequestBody(nil, req, false)
-//	require.NoError(t, err)
-//	require.NotNil(t, bodyMutation)
-//
-//	// Unmarshal the body to check the Anthropic request
-//	var anthropicReq anthropicRequest
-//	err = json.Unmarshal(bodyMutation.GetBody(), &anthropicReq)
-//	require.NoError(t, err)
-//
-//	require.Equal(t, "vertex-2023-10-16", anthropicReq.AnthropicVersion)
-//	require.Equal(t, 1, len(anthropicReq.Messages))
-//	require.Equal(t, "user", anthropicReq.Messages[0].Role)
-//
-//	// Content should be a slice of AnthropicContent
-//	content, ok := anthropicReq.Messages[0].Content.([]interface{})
-//	fmt.Println(content)
-//	require.True(t, ok)
-//	require.Equal(t, 1, len(content))
-//
-//	// Check the content part
-//	part, ok := content[0].(map[string]interface{})
-//	require.True(t, ok)
-//	require.Equal(t, "text", part["type"])
-//	require.Equal(t, "Hello, how are you?", part["text"])
-//}
