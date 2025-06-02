@@ -15,10 +15,10 @@ import (
 	"io"
 	"strconv"
 
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
-
-	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
 // TODO: support for "system"? https://docs.anthropic.com/en/api/messages#tool-use
@@ -30,22 +30,11 @@ const anthropicVersion = "vertex-2023-10-16"
 
 // Anthropic request/response structs
 type AnthropicContent struct {
-	Type   string                `json:"type"`
-	Text   string                `json:"text"`
-	Source *anthropicImageSource `json:"source,omitempty"`
+	Type   string                            `json:"type"`
+	Text   string                            `json:"text"`
+	Source *anthropic.Base64ImageSourceParam `json:"source,omitempty"`
 }
 
-// supported in claude 3
-type anthropicImageSource struct {
-	Type      string `json:"type"`       // always "base64"
-	MediaType string `json:"media_type"` // e.g. "image/jpeg"
-	Data      string `json:"data"`       // base64-encoded image data
-}
-
-type anthropicUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-}
 type anthropicResponse struct {
 	Content    []AnthropicContent `json:"content"`
 	ID         string             `json:"id"`
@@ -54,19 +43,14 @@ type anthropicResponse struct {
 	StopReason string             `json:"stop_reason"`
 	StopSeq    *string            `json:"stop_sequence"`
 	Type       string             `json:"type"`
-	Usage      anthropicUsage     `json:"usage"`
-}
-
-type anthropicMessage struct {
-	Role    string             `json:"role"`
-	Content []AnthropicContent `json:"content"`
+	Usage      anthropic.Usage    `json:"usage"`
 }
 
 type anthropicRequest struct {
-	AnthropicVersion string             `json:"anthropic_version"`
-	Messages         []anthropicMessage `json:"messages"`
-	MaxTokens        int                `json:"max_tokens,omitempty"`
-	Stream           bool               `json:"stream,omitempty"`
+	AnthropicVersion string                   `json:"anthropic_version"`
+	Messages         []anthropic.MessageParam `json:"messages"`
+	MaxTokens        int                      `json:"max_tokens,omitempty"`
+	Stream           bool                     `json:"stream,omitempty"`
 }
 
 // NewChatCompletionOpenAIToGCPAnthropicTranslator implements [Factory] for OpenAI to GCP Gemini translation.
@@ -99,36 +83,23 @@ func anthropicToOpenAIFinishReason(reason string) openai.ChatCompletionChoicesFi
 }
 
 // Helper: Convert OpenAI message content to Anthropic content
-func openAIToAnthropicContent(content interface{}) ([]AnthropicContent, error) {
+func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockParamUnion, error) {
 	if v, ok := content.(string); ok {
-		return []AnthropicContent{{Type: "text", Text: v}}, nil
+		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(v)}, nil
 	} else if contents, ok := content.([]openai.ChatCompletionContentPartUserUnionParam); ok {
-		resultContent := make([]AnthropicContent, 0, len(contents))
+		resultContent := make([]anthropic.ContentBlockParamUnion, 0, len(contents))
 		for i := range contents {
 			contentPart := &contents[i]
 			if contentPart.TextContent != nil {
-				resultContent = append(resultContent, AnthropicContent{
-					Type: "text",
-					Text: contents[i].TextContent.Text,
-				})
+				resultContent = append(resultContent, anthropic.NewTextBlock(contents[i].TextContent.Text))
 			} else if contentPart.ImageContent != nil {
 				imageContentPart := contentPart.ImageContent
 				contentType, b, err := parseDataURI(imageContentPart.ImageURL.URL)
 				if err != nil {
 					return nil, fmt.Errorf("failed to parse image URL: %w", err)
 				}
-				var format string
-				format = contentType
-				//TODO:
-				// if contentType == "image/png", "image/jpeg", "image/gif", "image/webp", then use that value, otherwise not supported
-				resultContent = append(resultContent, AnthropicContent{
-					Type: "source",
-					Source: &anthropicImageSource{
-						Type:      "base64", // only thing supported now
-						MediaType: format,
-						Data:      string(b),
-					},
-				})
+
+				resultContent = append(resultContent, anthropic.NewImageBlockBase64(contentType, string(b)))
 			}
 		}
 		return resultContent, nil
@@ -137,7 +108,7 @@ func openAIToAnthropicContent(content interface{}) ([]AnthropicContent, error) {
 }
 
 func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest, anthropicReq *anthropicRequest) error {
-	anthropicReq.Messages = make([]anthropicMessage, 0, len(openAIReq.Messages))
+	anthropicReq.Messages = make([]anthropic.MessageParam, 0, len(openAIReq.Messages))
 	for i := range openAIReq.Messages {
 		msg := &openAIReq.Messages[i]
 		switch msg.Type {
@@ -147,8 +118,8 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 			if err != nil {
 				return err
 			}
-			anthropicMsg := anthropicMessage{
-				Role:    openai.ChatMessageRoleUser,
+			anthropicMsg := anthropic.MessageParam{
+				Role:    anthropic.MessageParamRoleUser,
 				Content: content,
 			}
 			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
@@ -158,7 +129,7 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 			if err != nil {
 				return err
 			}
-			anthropicMsg := anthropicMessage{
+			anthropicMsg := anthropic.MessageParam{
 				Role:    openai.ChatMessageRoleAssistant,
 				Content: content,
 			}
@@ -295,10 +266,12 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeader
 				FinishReason: anthropicToOpenAIFinishReason(anthropicResp.StopReason),
 			},
 		},
+		// TODO: what other support do we want to add for usage?
+		// this is confusing https://docs.anthropic.com/en/api/service-tiers (three tiers, two values)
 		Usage: openai.ChatCompletionResponseUsage{
-			PromptTokens:     anthropicResp.Usage.InputTokens,
-			CompletionTokens: anthropicResp.Usage.OutputTokens,
-			TotalTokens:      anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens,
+			PromptTokens:     int(anthropicResp.Usage.InputTokens),
+			CompletionTokens: int(anthropicResp.Usage.OutputTokens),
+			TotalTokens:      int(anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens),
 		},
 	}
 

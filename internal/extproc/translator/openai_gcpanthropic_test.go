@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 				Messages: []openai.ChatCompletionMessageParamUnion{
 					{
 						Value: openai.ChatCompletionUserMessageParam{
-							Role: openai.ChatMessageRoleUser, //TODO: aws test doesn't have this field, should we?
+							Role: openai.ChatMessageRoleUser,
 							Content: openai.StringOrUserRoleContentUnion{
 								Value: "Hello, how are you?",
 							},
@@ -36,12 +37,10 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 			},
 			output: anthropicRequest{
 				AnthropicVersion: anthropicVersion,
-				Messages: []anthropicMessage{
+				Messages: []anthropic.MessageParam{
 					{
-						Role: "user",
-						Content: []AnthropicContent{
-							{Type: "text", Text: "Hello, how are you?"},
-						},
+						Role:    anthropic.MessageParamRoleUser,
+						Content: []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock("Hello, how are you?")},
 					},
 				},
 				MaxTokens: 10,
@@ -71,12 +70,12 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 			},
 			output: anthropicRequest{
 				AnthropicVersion: anthropicVersion,
-				Messages: []anthropicMessage{
+				Messages: []anthropic.MessageParam{
 					{
-						Role: "user",
-						Content: []AnthropicContent{
-							{Type: "text", Text: "part1"},
-							{Type: "text", Text: "part2"},
+						Role: anthropic.MessageParamRoleUser,
+						Content: []anthropic.ContentBlockParamUnion{
+							anthropic.NewTextBlock("part1"),
+							anthropic.NewTextBlock("part2"),
 						},
 					},
 				},
@@ -103,7 +102,13 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 			var got anthropicRequest
 			err = json.Unmarshal(newBody, &got)
 			require.NoError(t, err)
-			require.Equal(t, tt.output, got)
+
+			// Compare as JSON to avoid pointer address issues
+			expectedJSON, err := json.Marshal(tt.output)
+			require.NoError(t, err)
+			gotJSON, err := json.Marshal(got)
+			require.NoError(t, err)
+			require.JSONEq(t, string(expectedJSON), string(gotJSON))
 		})
 	}
 }
