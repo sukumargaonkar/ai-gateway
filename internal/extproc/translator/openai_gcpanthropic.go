@@ -53,6 +53,7 @@ type anthropicRequest struct {
 	Stream           bool                     `json:"stream,omitempty"`
 }
 
+
 // NewChatCompletionOpenAIToGCPAnthropicTranslator implements [Factory] for OpenAI to GCP Gemini translation.
 func NewChatCompletionOpenAIToGCPAnthropicTranslator() OpenAIChatCompletionTranslator {
 	return &openAIToGCPAnthropicTranslatorV1ChatCompletion{}
@@ -183,13 +184,13 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 			{
 				Header: &corev3.HeaderValue{
 					Key:   ":path",
-					Value: gcpReqPath,
+					RawValue: []byte(gcpReqPath),
 				},
 			},
 			{
 				Header: &corev3.HeaderValue{
-					Key:   "content-length",
-					Value: strconv.Itoa(len(body)),
+					Key:      "content-length",
+					RawValue: []byte(strconv.Itoa(len(body))),
 				},
 			},
 		},
