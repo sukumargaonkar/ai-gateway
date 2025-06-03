@@ -167,7 +167,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 	anthropicReq := anthropicRequest{
 		AnthropicVersion: "vertex-2023-10-16",
 		MaxTokens:        maxTokens,
-		Stream:           false, // TODO: add support for streaming
+		Stream:           openAIReq.Stream,
 	}
 
 	// Transform OpenAI messages to Anthropic messages
@@ -198,24 +198,6 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 		Mutation: &extprocv3.BodyMutation_Body{Body: body},
 	}
 	return headerMutation, bodyMutation, nil
-
-	//	gcpReqBody := []byte(`{
-	//  "anthropic_version": "vertex-2023-10-16",
-	//  "messages": [
-	//    {
-	//      "role": "user",
-	//      "content": [
-	//        {
-	//          "type": "text",
-	//          "text": "What is in this image?"
-	//        }
-	//      ]
-	//    }
-	//  ],
-	//  "max_tokens": 256,
-	//  "stream": false
-	//}`)
-
 }
 
 // ResponseHeaders implements [Translator.ResponseHeaders].

@@ -113,4 +113,36 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 	}
 }
 
+func TestUserMessageStream(t *testing.T) {
+	input := openai.ChatCompletionRequest{
+		Stream: true,
+		Model:  "claude-3-5-haiku",
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			{
+				Value: openai.ChatCompletionUserMessageParam{
+					Role: openai.ChatMessageRoleUser,
+					Content: openai.StringOrUserRoleContentUnion{
+						Value: "Hey how are you?",
+					},
+				},
+				Type: openai.ChatMessageRoleUser,
+			},
+		},
+		MaxTokens: ptrToInt64(10),
+	}
+	translator := NewChatCompletionOpenAIToGCPAnthropicTranslator()
+	hm, bm, err := translator.RequestBody(nil, &input, false)
+	require.NoError(t, err)
+	require.NotNil(t, hm)
+	require.NotNil(t, bm)
+	newBody := bm.Mutation.(*extprocv3.BodyMutation_Body).Body
+
+	var got anthropicRequest
+	err = json.Unmarshal(newBody, &got)
+	require.NoError(t, err)
+	require.True(t, got.Stream, "stream field should be true in request body")
+	require.Equal(t, anthropic.MessageParamRoleUser, got.Messages[0].Role)
+	require.Contains(t, *got.Messages[0].Content[0].GetText(), "Hey how are you?")
+}
+
 func ptrToInt64(i int64) *int64 { return &i }
