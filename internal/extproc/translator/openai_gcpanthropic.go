@@ -47,12 +47,19 @@ type anthropicResponse struct {
 }
 
 type anthropicRequest struct {
-	AnthropicVersion string                   `json:"anthropic_version"`
-	Messages         []anthropic.MessageParam `json:"messages"`
-	MaxTokens        int                      `json:"max_tokens,omitempty"`
-	Stream           bool                     `json:"stream,omitempty"`
+	AnthropicVersion string                         `json:"anthropic_version"`
+	Messages         []anthropic.MessageParam       `json:"messages"`
+	MaxTokens        int64                          `json:"max_tokens"`
+	Stream           bool                           `json:"stream,omitempty"`
+	System           []anthropic.TextBlockParam     `json:"system,omitzero"`
+	StopSequences    []string                       `json:"stop_sequences,omitzero"`
+	Model            anthropic.Model                `json:"model,omitempty"`
+	Temperature      *float64                       `json:"temperature,omitempty"`
+	Tools            []anthropic.ToolUnionParam     `json:"tools,omitzero"`
+	ToolChoice       anthropic.ToolChoiceUnionParam `json:"tool_choice,omitzero"`
+	TopP             *float64                       `json:"top_p,omitzero"`
+	TopK             *int64                         `json:"top_k,omitzero"`
 }
-
 
 // NewChatCompletionOpenAIToGCPAnthropicTranslator implements [Factory] for OpenAI to GCP Gemini translation.
 func NewChatCompletionOpenAIToGCPAnthropicTranslator() OpenAIChatCompletionTranslator {
@@ -83,7 +90,40 @@ func anthropicToOpenAIFinishReason(reason string) openai.ChatCompletionChoicesFi
 	}
 }
 
-// Helper: Convert OpenAI message content to Anthropic content
+// Helper: Extract system/developer prompt from OpenAI messages and return the prompt
+func extractSystemOrDeveloperPrompt(msg openai.ChatCompletionMessageParamUnion) (systemPrompt string) {
+	switch v := msg.Value.(type) {
+	case openai.ChatCompletionSystemMessageParam:
+		if s, ok := v.Content.Value.(string); ok {
+			systemPrompt = s
+		} else if arr, ok := v.Content.Value.([]openai.ChatCompletionContentPartUserUnionParam); ok && len(arr) > 0 && arr[0].TextContent != nil {
+			systemPrompt = arr[0].TextContent.Text
+		}
+	case map[string]interface{}:
+		if s, ok := v["content"].(string); ok {
+			systemPrompt = s
+		}
+	}
+	return
+}
+
+// Helper: Validate and extract stop sequences from OpenAI request
+// Helper: Convert []*string to []string for stop sequences
+func extractStopSequencesFromPtrSlice(stop []*string) ([]string, error) {
+	if stop == nil {
+		return nil, nil
+	}
+	stopSequences := make([]string, 0, len(stop))
+	for _, s := range stop {
+		if s == nil {
+			return nil, fmt.Errorf("invalid stop param: message.stop contains nil value")
+		}
+		stopSequences = append(stopSequences, *s)
+	}
+	return stopSequences, nil
+}
+
+// Helper: Convert OpenAI message content to Anthropic content (extended for all types)
 func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockParamUnion, error) {
 	if v, ok := content.(string); ok {
 		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(v)}, nil
@@ -99,8 +139,9 @@ func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockPara
 				if err != nil {
 					return nil, fmt.Errorf("failed to parse image URL: %w", err)
 				}
-
 				resultContent = append(resultContent, anthropic.NewImageBlockBase64(contentType, string(b)))
+			} else if contentPart.InputAudioContent != nil { //TODO
+				return nil, fmt.Errorf("input audio content not supported yet")
 			}
 		}
 		return resultContent, nil
@@ -108,14 +149,16 @@ func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockPara
 	return nil, fmt.Errorf("unsupported OpenAI content type: %T", content)
 }
 
-func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest, anthropicReq *anthropicRequest) error {
+// Refactored: Convert OpenAI messages to Anthropic messages, handling all roles and system/developer logic
+func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest, anthropicReq *anthropicRequest) (err error) {
 	anthropicReq.Messages = make([]anthropic.MessageParam, 0, len(openAIReq.Messages))
 	for i := range openAIReq.Messages {
 		msg := &openAIReq.Messages[i]
 		switch msg.Type {
 		case openai.ChatMessageRoleUser:
 			message := msg.Value.(openai.ChatCompletionUserMessageParam)
-			content, err := openAIToAnthropicContent(message.Content.Value)
+			var content []anthropic.ContentBlockParamUnion
+			content, err = openAIToAnthropicContent(message.Content.Value)
 			if err != nil {
 				return err
 			}
@@ -126,26 +169,25 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
 		case openai.ChatMessageRoleAssistant:
 			message := msg.Value.(openai.ChatCompletionAssistantMessageParam)
-			content, err := openAIToAnthropicContent(message.Content.Value)
+			var content []anthropic.ContentBlockParamUnion
+			content, err = openAIToAnthropicContent(message.Content.Value)
 			if err != nil {
 				return err
 			}
 			anthropicMsg := anthropic.MessageParam{
-				Role:    openai.ChatMessageRoleAssistant,
+				Role:    anthropic.MessageParamRoleAssistant,
 				Content: content,
 			}
 			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
-			//TODO:  Note that if you want to include a system prompt, you can use the top-level system parameter — there is no "system" role for input messages in the Messages API.
-		//case openai.ChatMessageRoleSystem:
-		//	systemMessage := msg.Value.(openai.ChatCompletionSystemMessageParam)
-		//	anthropicMsg := anthropicMessage{
-		//		Role:    openai.ChatMessageRoleSystem,
-		//		Content: openAIToAnthropicContent(systemMessage.Content.Value),
-		//	}
-		//	anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
+		case openai.ChatMessageRoleDeveloper, openai.ChatMessageRoleSystem:
+			// todo: test that the conversion works for both system and developer messages
+			// todo: do we assume the openai dev/system is always text? check
+			systemPrompt := extractSystemOrDeveloperPrompt(msg.Value.(openai.ChatCompletionMessageParamUnion))
+			anthropicReq.System = append(anthropicReq.System, anthropic.TextBlockParam{Text: systemPrompt})
 		default:
 			return fmt.Errorf("unsupported OpenAI role type: %s", msg.Type)
 		}
+		// todo: add tool support
 	}
 	return nil
 }
@@ -154,25 +196,50 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, onRetry bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
-	// For now we just hardcoded an example request
 	region := "us-east5"
 	project := "bb-llm-gateway-dev"
 	model := "claude-3-5-haiku@20241022" // TODO: make var
 	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", region, project, region, model)
 
-	//TODO: update forming the anthropic req with inference config,
-	maxTokens := 256
-	if openAIReq.MaxTokens != nil {
-		maxTokens = int(*openAIReq.MaxTokens)
-	}
-	anthropicReq := anthropicRequest{
-		AnthropicVersion: "vertex-2023-10-16",
-		MaxTokens:        maxTokens,
-		Stream:           openAIReq.Stream,
+	// Validate max_tokens/max_completion_tokens
+	// todo: openAIReq.MaxCompletionTokens == nil -- add it?
+	if openAIReq.MaxTokens == nil {
+		return nil, nil, fmt.Errorf("max_tokens is required in OpenAI request")
 	}
 
-	// Transform OpenAI messages to Anthropic messages
+	// todo: check if thinking a chat param? cant find in docs
+
+	if openAIReq.Stream {
+		return nil, nil, fmt.Errorf("streaming is not yet supported for GCP Anthropic translation")
+	}
+
+	anthropicReq := anthropicRequest{
+		AnthropicVersion: anthropicVersion,
+		MaxTokens:        *openAIReq.MaxTokens,
+		// todo: add stream support
+		//Stream:           openAIReq.Stream,
+		Model:       anthropic.Model(model),
+		Temperature: openAIReq.Temperature,
+		TopP:        openAIReq.TopP,
+		//TopK:             openAIReq.TopK,
+		// todo: we dont support top k?
+		// todo: add tool support
+		// todo: add tool_choice support
+	}
+
+	// Validate and extract stop sequences
+	stopSequences, err := extractStopSequencesFromPtrSlice(openAIReq.Stop)
+	if err != nil {
+		return nil, nil, err // or handle as appropriate
+	}
+	if len(stopSequences) > 0 {
+		anthropicReq.StopSequences = stopSequences
+	}
+
 	err = openAIMessageToGCPAnthropicMessage(openAIReq, &anthropicReq)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	body, err := json.Marshal(anthropicReq)
 	if err != nil {
@@ -183,7 +250,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 		SetHeaders: []*corev3.HeaderValueOption{
 			{
 				Header: &corev3.HeaderValue{
-					Key:   ":path",
+					Key:      ":path",
 					RawValue: []byte(gcpReqPath),
 				},
 			},

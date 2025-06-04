@@ -145,4 +145,131 @@ func TestUserMessageStream(t *testing.T) {
 	require.Contains(t, *got.Messages[0].Content[0].GetText(), "Hey how are you?")
 }
 
+func TestSystemAndDeveloperPromptExtraction(t *testing.T) {
+	t.Run("system message string", func(t *testing.T) {
+		input := openai.ChatCompletionRequest{
+			Stream: false,
+			Model:  "claude-3-5-haiku",
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleSystem,
+					Value: openai.ChatCompletionSystemMessageParam{
+						Role:    openai.ChatMessageRoleSystem,
+						Content: openai.StringOrUserRoleContentUnion{Value: "You are a helpful assistant."},
+					},
+				},
+				{
+					Type: openai.ChatMessageRoleUser,
+					Value: openai.ChatCompletionUserMessageParam{
+						Role:    openai.ChatMessageRoleUser,
+						Content: openai.StringOrUserRoleContentUnion{Value: "Hello!"},
+					},
+				},
+			},
+			MaxTokens: ptrToInt64(5),
+		}
+		translator := NewChatCompletionOpenAIToGCPAnthropicTranslator()
+		hm, bm, err := translator.RequestBody(nil, &input, false)
+		require.NoError(t, err)
+		newBody := bm.Mutation.(*extprocv3.BodyMutation_Body).Body
+		var got map[string]interface{}
+		err = json.Unmarshal(newBody, &got)
+		require.NoError(t, err)
+		require.Equal(t, "You are a helpful assistant.", got["system"])
+		msgs, ok := got["messages"].([]interface{})
+		require.True(t, ok)
+		require.Len(t, msgs, 1)
+		msg := msgs[0].(map[string]interface{})
+		require.Equal(t, "user", msg["role"])
+	})
+
+	t.Run("system message array", func(t *testing.T) {
+		input := openai.ChatCompletionRequest{
+			Stream: false,
+			Model:  "claude-3-5-haiku",
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleSystem,
+					Value: openai.ChatCompletionSystemMessageParam{
+						Role:    openai.ChatMessageRoleSystem,
+						Content: openai.StringOrUserRoleContentUnion{Value: []openai.ChatCompletionContentPartUserUnionParam{{TextContent: &openai.ChatCompletionContentPartTextParam{Text: "You are a system array."}}}},
+					},
+				},
+				{
+					Type: openai.ChatMessageRoleUser,
+					Value: openai.ChatCompletionUserMessageParam{
+						Role:    openai.ChatMessageRoleUser,
+						Content: openai.StringOrUserRoleContentUnion{Value: "Hi!"},
+					},
+				},
+			},
+			MaxTokens: ptrToInt64(5),
+		}
+		translator := NewChatCompletionOpenAIToGCPAnthropicTranslator()
+		hm, bm, err := translator.RequestBody(nil, &input, false)
+		require.NoError(t, err)
+		newBody := bm.Mutation.(*extprocv3.BodyMutation_Body).Body
+		var got map[string]interface{}
+		err = json.Unmarshal(newBody, &got)
+		require.NoError(t, err)
+		require.Equal(t, "You are a system array.", got["system"])
+		msgs, ok := got["messages"].([]interface{})
+		require.True(t, ok)
+		require.Len(t, msgs, 1)
+		msg := msgs[0].(map[string]interface{})
+		require.Equal(t, "user", msg["role"])
+	})
+
+	t.Run("developer message string", func(t *testing.T) {
+		input := openai.ChatCompletionRequest{
+			Stream: false,
+			Model:  "claude-3-5-haiku",
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type:  "developer",
+					Value: map[string]interface{}{"role": "developer", "content": "You are a dev system."},
+				},
+				{
+					Type: openai.ChatMessageRoleUser,
+					Value: openai.ChatCompletionUserMessageParam{
+						Role:    openai.ChatMessageRoleUser,
+						Content: openai.StringOrUserRoleContentUnion{Value: "Hi dev!"},
+					},
+				},
+			},
+			MaxTokens: ptrToInt64(5),
+		}
+		translator := NewChatCompletionOpenAIToGCPAnthropicTranslator()
+		hm, bm, err := translator.RequestBody(nil, &input, false)
+		require.NoError(t, err)
+		newBody := bm.Mutation.(*extprocv3.BodyMutation_Body).Body
+		var got map[string]interface{}
+		err = json.Unmarshal(newBody, &got)
+		require.NoError(t, err)
+		require.Equal(t, "You are a dev system.", got["system"])
+		msgs, ok := got["messages"].([]interface{})
+		require.True(t, ok)
+		require.Len(t, msgs, 1)
+		msg := msgs[0].(map[string]interface{})
+		require.Equal(t, "user", msg["role"])
+	})
+
+	t.Run("unsupported role", func(t *testing.T) {
+		input := openai.ChatCompletionRequest{
+			Stream: false,
+			Model:  "claude-3-5-haiku",
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type:  "unknownrole",
+					Value: map[string]interface{}{"role": "unknownrole", "content": "bad"},
+				},
+			},
+			MaxTokens: ptrToInt64(5),
+		}
+		translator := NewChatCompletionOpenAIToGCPAnthropicTranslator()
+		_, _, err := translator.RequestBody(nil, &input, false)
+		require.Error(t, err)
+	})
+}
+
 func ptrToInt64(i int64) *int64 { return &i }

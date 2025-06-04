@@ -230,6 +230,7 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseHeaders(ctx conte
 	}()
 
 	c.responseHeaders = headersToMap(headers)
+	fmt.Println("response headers in chat completion processor upstream filter", c.responseHeaders)
 	if enc := c.responseHeaders["content-encoding"]; enc != "" {
 		c.responseEncoding = enc
 	}
@@ -255,12 +256,15 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 		c.metrics.RecordRequestCompletion(ctx, err == nil)
 	}()
 	var br io.Reader
+	var removeHeaders []string
 	switch c.responseEncoding {
 	case "gzip":
 		br, err = gzip.NewReader(bytes.NewReader(body.Body))
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode gzip: %w", err)
 		}
+		// If the response was gzipped, ensure we remove the content-encoding header
+		removeHeaders = []string{"content-encoding"}
 	default:
 		br = bytes.NewReader(body.Body)
 	}
@@ -269,6 +273,10 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 	if err != nil {
 		return nil, fmt.Errorf("failed to transform response: %w", err)
 	}
+	if headerMutation == nil {
+		headerMutation = &extprocv3.HeaderMutation{}
+	}
+	headerMutation.RemoveHeaders = append(headerMutation.RemoveHeaders, removeHeaders...)
 
 	resp := &extprocv3.ProcessingResponse{
 		Response: &extprocv3.ProcessingResponse_ResponseBody{
@@ -301,6 +309,7 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 		}
 	}
 
+	fmt.Println("returning response in chat completion processor upstream filter", resp)
 	return resp, nil
 }
 
