@@ -29,11 +29,11 @@ import (
 const (
 	// gcpAccessTokenKey is the key used to store GCP access token in Kubernetes secrets.
 	gcpAccessTokenKey      = "gcpAccessToken"
-	grantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange"
-	gcpIAMScope            = "https://www.googleapis.com/auth/iam"
-	tokenTypeAccessToken   = "urn:ietf:params:oauth:token-type:access_token"
-	tokenTypeJWT           = "urn:ietf:params:oauth:token-type:jwt"
-	stsTokenScope          = "https://www.googleapis.com/auth/cloud-platform"
+	grantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange" // nolint:gosec
+	gcpIAMScope            = "https://www.googleapis.com/auth/iam"             // nolint:gosec
+	tokenTypeAccessToken   = "urn:ietf:params:oauth:token-type:access_token"   // nolint:gosec
+	tokenTypeJWT           = "urn:ietf:params:oauth:token-type:jwt"            // nolint:gosec
+	stsTokenScope          = "https://www.googleapis.com/auth/cloud-platform"  // nolint:gosec
 )
 
 // gcpOIDCTokenRotator implements Rotator interface for GCP access token exchange.

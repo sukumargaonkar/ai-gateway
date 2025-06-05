@@ -181,17 +181,18 @@ metadata:
 spec:
   type: GCPCredentials
   gcpCredentials:
-    projectID: GCP_PROJECT_ID  # Replace with your GCP project ID
-    serviceAccountEmail: GCP_SERVICE_ACCOUNT_EMAIL  # Replace with your service account email
-    workloadIdentityPoolName: GCP_WORKLOAD_IDENTITY_POOL  # Replace with your workload identity pool name
-    GCPIdentityProviderName: GCP_IDENTITY_PROVIDER_NAME  # Replace with the identity provider configured with GCP
-    oidc:
-      clientID: GCP_OIDC_CLIENT_ID  # Replace with your OIDC client ID
-      clientSecret:
-        name: envoy-ai-gateway-basic-gcpgemini-client-secret
-        namespace: default
-      provider:
-        issuer: GCP_OIDC_PROVIDER_ISSUER  # Replace with your OIDC provider issuer
+    workLoadIdentityFederationConfig:
+      projectID: GCP_PROJECT_ID  # Replace with your GCP project ID
+      workloadIdentityPoolName: GCP_WORKLOAD_IDENTITY_POOL  # Replace with your workload identity pool name
+      workloadIdentityProvider:
+        name: GCP_IDENTITY_PROVIDER_NAME  # Replace with the identity provider configured with GCP
+        oidc:
+          provider:
+            issuer: GCP_OIDC_PROVIDER_ISSUER  # Replace with your OIDC provider issuer
+          clientID: GCP_OIDC_CLIENT_ID  # Replace with your OIDC client ID
+          clientSecret:
+            name: envoy-ai-gateway-basic-gcpgemini-client-secret
+            namespace: default
 ---
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: Backend

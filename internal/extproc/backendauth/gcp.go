@@ -7,19 +7,24 @@ package backendauth
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"strings"
+	"text/template"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 
 	"github.com/envoyproxy/ai-gateway/filterapi"
+	"github.com/envoyproxy/ai-gateway/internal/extproc/translator"
 )
 
 type gcpHandler struct {
 	gcpAccessToken string
+	region         string
+	projectName    string
 }
 
 func newGCPHandler(gcpAuth *filterapi.GCPAuth) (Handler, error) {
@@ -42,6 +47,8 @@ func newGCPHandler(gcpAuth *filterapi.GCPAuth) (Handler, error) {
 
 	return &gcpHandler{
 		gcpAccessToken: accessToken,
+		region:         gcpAuth.Region,
+		projectName:    gcpAuth.ProjectName,
 	}, nil
 }
 
@@ -49,9 +56,35 @@ func newGCPHandler(gcpAuth *filterapi.GCPAuth) (Handler, error) {
 //
 // Extracts the azure access token from the local file and set it as an authorization header.
 func (g *gcpHandler) Do(_ context.Context, requestHeaders map[string]string, headerMut *extprocv3.HeaderMutation, _ *extprocv3.BodyMutation) error {
-	requestHeaders["Authorization"] = fmt.Sprintf("Bearer %s", g.gcpAccessToken)
-	headerMut.SetHeaders = append(headerMut.SetHeaders, &corev3.HeaderValueOption{
-		Header: &corev3.HeaderValue{Key: "Authorization", RawValue: []byte(requestHeaders["Authorization"])},
-	})
+	gcpReqPathTemplate := requestHeaders[":path"]
+	parsedPath, err := template.New("pathTemplate").Parse(gcpReqPathTemplate)
+	if err != nil {
+		return fmt.Errorf("invalid request path '%s'. expected placeholders for gcpRegion and gcpProjectName. Error: %w", gcpReqPathTemplate, err)
+	}
+	reqPath := bytes.Buffer{}
+	data := map[string]string{
+		translator.GCPRegionTemplateKey:  g.region,
+		translator.GCPProjectTemplateKey: g.projectName,
+	}
+	if err = parsedPath.Execute(&reqPath, data); err != nil {
+		return fmt.Errorf("failed to evaluate request path '%s': %w", gcpReqPathTemplate, err)
+	}
+
+	headerMut.SetHeaders = append(
+		headerMut.SetHeaders,
+		&corev3.HeaderValueOption{
+			Header: &corev3.HeaderValue{
+				Key:      "Authorization",
+				RawValue: []byte(fmt.Sprintf("Bearer %s", g.gcpAccessToken)),
+			},
+		},
+		&corev3.HeaderValueOption{
+			Header: &corev3.HeaderValue{
+				Key:      ":path",
+				RawValue: reqPath.Bytes(),
+			},
+		},
+	)
+
 	return nil
 }

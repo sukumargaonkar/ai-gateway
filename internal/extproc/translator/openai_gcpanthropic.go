@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
@@ -30,11 +31,13 @@ type openAIToGCPAnthropicTranslatorV1ChatCompletion struct{}
 func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, req *openai.ChatCompletionRequest, onRetry bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
+	_, _ = req, onRetry
+	model := "claude-3-5-haiku@20241022"
+	model = strings.TrimPrefix(model, "gcp.")
+	gcpReqPathTemplate := fmt.Sprintf("https://{{.%s}}-aiplatform.googleapis.com/v1/projects/{{.%s}}/locations/{{.%s}}/publishers/anthropic/models/%s:rawPredict", GCPRegionTemplateKey, GCPProjectTemplateKey, GCPRegionTemplateKey, model)
+
 	// TODO: Implement actual translation from OpenAI to Anthropic request.
 	// For now we just hardcoded an example request
-	region := "<REPLACE-ME>"
-	project := "<REPLACE-ME>"
-	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/claude-3-5-haiku@20241022:rawPredict", region, project, region)
 	gcpReqBody := []byte(`{
   "anthropic_version": "vertex-2023-10-16",
   "messages": [
@@ -57,7 +60,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, r
 			{
 				Header: &corev3.HeaderValue{
 					Key:      ":path",
-					RawValue: []byte(gcpReqPath),
+					RawValue: []byte(gcpReqPathTemplate),
 				},
 			},
 			{
@@ -79,6 +82,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers
 	headerMutation *extprocv3.HeaderMutation, err error,
 ) {
 	// TODO: Implement if needed.
+	_ = headers
 	return nil, nil
 }
 
@@ -87,6 +91,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseError(respHeade
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
 	// TODO: Implement error translation.
+	_, _ = respHeaders, body
 	return nil, nil, nil
 }
 
@@ -94,5 +99,6 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeader
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, tokenUsage LLMTokenUsage, err error,
 ) {
 	// TODO implement me
+	_, _, _ = respHeaders, body, endOfStream
 	return nil, nil, LLMTokenUsage{}, nil
 }
