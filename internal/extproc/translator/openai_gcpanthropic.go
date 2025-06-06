@@ -76,7 +76,9 @@ func anthropicToOpenAIFinishReason(reason string) openai.ChatCompletionChoicesFi
 	switch stopReason {
 	// The most common stop reason. Indicates Claude finished its response naturally.
 	// or Claude encountered one of your custom stop sequences.
-	case anthropic.StopReasonEndTurn, anthropic.StopReasonStopSequence:
+	// TODO: A better way to return pause_turng
+	// TODO: "pause_turn" Used with server tools like web search when Claude needs to pause a long-running operation.
+	case anthropic.StopReasonEndTurn, anthropic.StopReasonStopSequence, anthropic.StopReasonPauseTurn:
 		return openai.ChatCompletionChoicesFinishReasonStop
 	case anthropic.StopReasonMaxTokens: // Claude stopped because it reached the max_tokens limit specified in your request.
 		return openai.ChatCompletionChoicesFinishReasonLength
@@ -85,9 +87,6 @@ func anthropicToOpenAIFinishReason(reason string) openai.ChatCompletionChoicesFi
 	case anthropic.StopReasonRefusal:
 		return openai.ChatCompletionChoicesFinishReasonContentFilter
 	default:
-		// TODO: change/fix/test
-		// TODO: we are missing pause_turn anthropic.StopReasonPauseTurn
-		// TODO: "pause_turn" Used with server tools like web search when Claude needs to pause a long-running operation.
 		return openai.ChatCompletionChoicesFinishReason(reason)
 	}
 }
@@ -153,6 +152,26 @@ func isSupportedImageMediaType(mediaType string) bool {
 	}
 }
 
+func toAnthropicToolUse(
+	toolCalls []openai.ChatCompletionMessageToolCallParam,
+) ([]anthropic.ToolUseBlockParam, error) {
+	var anthropicToolCalls []anthropic.ToolUseBlockParam
+	for _, toolCall := range toolCalls {
+		var input map[string]interface{}
+		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &input); err != nil {
+			return nil, err
+		}
+		toolUse := anthropic.ToolUseBlockParam{
+			ID:    toolCall.ID,
+			Type:  "tool_use", //TODO: use constant
+			Name:  toolCall.Function.Name,
+			Input: input,
+		}
+		anthropicToolCalls = append(anthropicToolCalls, toolUse)
+	}
+	return anthropicToolCalls, nil
+}
+
 // Helper: Convert OpenAI message content to Anthropic content (extended for all types)
 func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockParamUnion, error) {
 	switch v := content.(type) {
@@ -208,7 +227,7 @@ func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockPara
 	return nil, fmt.Errorf("unsupported OpenAI content type: %T", content)
 }
 
-// Refactored: Convert OpenAI messages to Anthropic messages, handling all roles and system/developer logic
+// openAIMessageToGCPAnthropicMessage converts OpenAI messages to Anthropic messages, handling all roles and system/developer logic
 func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest, anthropicReq *anthropicRequest) (err error) {
 	anthropicReq.Messages = make([]anthropic.MessageParam, 0, len(openAIReq.Messages))
 	for i := range openAIReq.Messages {
@@ -228,10 +247,16 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
 		case openai.ChatMessageRoleAssistant:
 			message := msg.Value.(openai.ChatCompletionAssistantMessageParam)
+
 			var content []anthropic.ContentBlockParamUnion
 			content, err = openAIToAnthropicContent(message.Content.Value)
 			if err != nil {
 				return err
+			}
+			var toolUseBlocks []anthropic.ToolUseBlockParam
+			toolUseBlocks, err = toAnthropicToolUse(message.ToolCalls)
+			for _, t := range toolUseBlocks {
+				content = append(content, anthropic.ContentBlockParamUnion{OfToolUse: &t})
 			}
 			anthropicMsg := anthropic.MessageParam{
 				Role:    anthropic.MessageParamRoleAssistant,
@@ -243,6 +268,36 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 			// todo: do we assume the openai dev/system is always text? check
 			systemPrompt := extractSystemOrDeveloperPrompt(msg.Value.(openai.ChatCompletionMessageParamUnion))
 			anthropicReq.System = append(anthropicReq.System, anthropic.TextBlockParam{Text: systemPrompt})
+		case openai.ChatMessageRoleTool:
+			toolMsg := msg.Value.(openai.ChatCompletionToolMessageParam)
+			var content []anthropic.ContentBlockParamUnion
+			content, err = openAIToAnthropicContent(toolMsg.Content)
+			if err != nil {
+				return err
+			}
+			var toolContent []anthropic.ToolResultBlockParamContentUnion
+			var trb anthropic.ToolResultBlockParamContentUnion
+			for _, c := range content {
+				if c.OfText != nil {
+					trb.OfText = c.OfText
+				} else if c.OfImage != nil {
+					trb.OfImage = c.OfImage
+				}
+				toolContent = append(toolContent, trb)
+			}
+
+			toolResultBlock := anthropic.ToolResultBlockParam{
+				ToolUseID: toolMsg.ToolCallID,
+				Type:      "tool_result",
+				Content:   toolContent,
+			}
+			anthropicMsg := anthropic.MessageParam{
+				Role: anthropic.MessageParamRoleUser,
+				Content: []anthropic.ContentBlockParamUnion{
+					{OfToolResult: &toolResultBlock},
+				},
+			}
+			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
 		default:
 			return fmt.Errorf("unsupported OpenAI role type: %s", msg.Type)
 		}
@@ -256,7 +311,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
 	region := "us-east5"
-	project := "bb-llm-gateway-dev"
+	project := ""
 	model := "claude-3-5-haiku@20241022" // TODO: make var
 	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", region, project, region, model)
 
