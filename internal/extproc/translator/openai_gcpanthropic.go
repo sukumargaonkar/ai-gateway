@@ -10,12 +10,15 @@ package translator
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
@@ -134,24 +137,69 @@ func extractStopSequencesFromPtrSlice(stop []*string) ([]string, error) {
 	return stopSequences, nil
 }
 
+func isDataURI(uri string) bool {
+	return strings.HasPrefix(uri, "data:")
+}
+
+func isSupportedImageMediaType(mediaType string) bool {
+	switch anthropic.Base64ImageSourceMediaType(mediaType) {
+	case anthropic.Base64ImageSourceMediaTypeImageJPEG,
+		anthropic.Base64ImageSourceMediaTypeImagePNG,
+		anthropic.Base64ImageSourceMediaTypeImageGIF,
+		anthropic.Base64ImageSourceMediaTypeImageWebP:
+		return true
+	default:
+		return false
+	}
+}
+
 // Helper: Convert OpenAI message content to Anthropic content (extended for all types)
 func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockParamUnion, error) {
-	if v, ok := content.(string); ok {
-		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(v)}, nil
-	} else if contents, ok := content.([]openai.ChatCompletionContentPartUserUnionParam); ok {
-		resultContent := make([]anthropic.ContentBlockParamUnion, 0, len(contents))
-		for i := range contents {
-			contentPart := &contents[i]
-			if contentPart.TextContent != nil {
-				resultContent = append(resultContent, anthropic.NewTextBlock(contents[i].TextContent.Text))
-			} else if contentPart.ImageContent != nil {
-				imageContentPart := contentPart.ImageContent
-				contentType, b, err := parseDataURI(imageContentPart.ImageURL.URL)
-				if err != nil {
-					return nil, fmt.Errorf("failed to parse image URL: %w", err)
+	switch v := content.(type) {
+	case nil:
+		return nil, nil
+	case string:
+		if v == "" {
+			return nil, nil
+		}
+		return []anthropic.ContentBlockParamUnion{
+			anthropic.NewTextBlock(v),
+		}, nil
+	case []openai.ChatCompletionContentPartUserUnionParam:
+		resultContent := make([]anthropic.ContentBlockParamUnion, 0, len(v))
+		for _, contentPart := range v {
+			switch {
+			case contentPart.TextContent != nil:
+				resultContent = append(resultContent, anthropic.NewTextBlock(contentPart.TextContent.Text))
+			case contentPart.ImageContent != nil:
+				imageURL := contentPart.ImageContent.ImageURL.URL
+				if isDataURI(imageURL) {
+					contentType, data, err := parseDataURI(imageURL)
+					if err != nil {
+						return nil, fmt.Errorf("failed to parse image URL: %w", err)
+					}
+					appPDF := constant.ValueOf[constant.ApplicationPDF]()
+					base64Data := base64.StdEncoding.EncodeToString(data)
+					if contentType == string(appPDF) {
+						pdfSource := anthropic.Base64PDFSourceParam{
+							Data: base64Data,
+						}
+						resultContent = append(resultContent, anthropic.NewDocumentBlock(pdfSource))
+					} else if isSupportedImageMediaType(contentType) {
+						resultContent = append(resultContent, anthropic.NewImageBlockBase64(contentType, base64Data))
+					} else {
+						return nil, fmt.Errorf("invalid media_type for image '%s'", contentType)
+					}
+				} else if strings.HasSuffix(strings.ToLower(imageURL), ".pdf") {
+					resultContent = append(resultContent, anthropic.NewDocumentBlock(anthropic.URLPDFSourceParam{
+						URL: imageURL,
+					}))
+				} else {
+					resultContent = append(resultContent, anthropic.NewImageBlock(anthropic.URLImageSourceParam{
+						URL: imageURL,
+					}))
 				}
-				resultContent = append(resultContent, anthropic.NewImageBlockBase64(contentType, string(b)))
-			} else if contentPart.InputAudioContent != nil { //TODO
+			case contentPart.InputAudioContent != nil:
 				return nil, fmt.Errorf("input audio content not supported yet")
 			}
 		}
