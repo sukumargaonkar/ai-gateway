@@ -68,24 +68,23 @@ func NewChatCompletionOpenAIToGCPAnthropicTranslator() OpenAIChatCompletionTrans
 
 type openAIToGCPAnthropicTranslatorV1ChatCompletion struct{}
 
-// TODO: 3. Implement retry logic for pause_turn(?) https://docs.anthropic.com/en/api/handling-stop-reasons#3-implement-retry-logic-for-pause-turn
-// TODO: remove hard code
 func anthropicToOpenAIFinishReason(reason string) openai.ChatCompletionChoicesFinishReason {
-	switch reason {
+	stopReason := anthropic.StopReason(reason)
+	switch stopReason {
 	// TODO: "pause_turn" Used with server tools like web search when Claude needs to pause a long-running operation.
 	// TODO: "refusal" Claude refused to generate a response due to safety concerns.
 	// TODO: "
 	// The most common stop reason. Indicates Claude finished its response naturally.
 	// or Claude encountered one of your custom stop sequences.
-	// TODO: remove hard coding
-	case "end_turn", "stop_sequence":
-		return "stop"
-	case "max_tokens": // Claude stopped because it reached the max_tokens limit specified in your request.
-		return "length"
-	case "tool_use":
+	case anthropic.StopReasonEndTurn, anthropic.StopReasonStopSequence:
+		return openai.ChatCompletionChoicesFinishReasonStop
+	case anthropic.StopReasonMaxTokens: // Claude stopped because it reached the max_tokens limit specified in your request.
+		return openai.ChatCompletionChoicesFinishReasonLength
+	case anthropic.StopReasonToolUse:
 		return "tool_calls"
 	default:
 		// TODO: change/fix/test
+		// TODO: we are missing pause_turn anthropic.StopReasonPauseTurn & StopReasonRefusal
 		return openai.ChatCompletionChoicesFinishReason(reason)
 	}
 }

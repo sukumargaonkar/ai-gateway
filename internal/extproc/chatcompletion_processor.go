@@ -264,7 +264,7 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 			return nil, fmt.Errorf("failed to decode gzip: %w", err)
 		}
 		// If the response was gzipped, ensure we remove the content-encoding header
-		removeHeaders = []string{"content-encoding"}
+		removeHeaders = append(removeHeaders, "content-encoding")
 	default:
 		br = bytes.NewReader(body.Body)
 	}
