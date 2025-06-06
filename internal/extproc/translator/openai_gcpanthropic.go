@@ -51,17 +51,17 @@ type anthropicResponse struct {
 }
 
 type anthropicRequest struct {
-	AnthropicVersion string                         `json:"anthropic_version"`
-	Messages         []anthropic.MessageParam       `json:"messages"`
-	MaxTokens        int64                          `json:"max_tokens"`
-	Stream           bool                           `json:"stream,omitempty"`
-	System           []anthropic.TextBlockParam     `json:"system,omitempty"`
-	StopSequences    []string                       `json:"stop_sequences,omitempty"`
-	Model            anthropic.Model                `json:"model,omitempty"`
-	Temperature      *float64                       `json:"temperature,omitempty"`
-	Tools            []anthropic.ToolUnionParam     `json:"tools,omitempty"`
-	ToolChoice       anthropic.ToolChoiceUnionParam `json:"tool_choice,omitempty"`
-	TopP             *float64                       `json:"top_p,omitempty"`
+	AnthropicVersion string                     `json:"anthropic_version"`
+	Messages         []anthropic.MessageParam   `json:"messages"`
+	MaxTokens        int64                      `json:"max_tokens"`
+	Stream           bool                       `json:"stream,omitempty"`
+	System           []anthropic.TextBlockParam `json:"system,omitempty"`
+	StopSequences    []string                   `json:"stop_sequences,omitempty"`
+	Model            anthropic.Model            `json:"model,omitempty"`
+	Temperature      *float64                   `json:"temperature,omitempty"`
+	Tools            []anthropic.ToolUnionParam `json:"tools,omitempty"`
+	// ToolChoice       anthropic.ToolChoiceUnionParam `json:"tool_choice,omitempty"`
+	TopP *float64 `json:"top_p,omitempty"`
 }
 
 // NewChatCompletionOpenAIToGCPAnthropicTranslator implements [Factory] for OpenAI to GCP Gemini translation.
@@ -266,6 +266,8 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 		case openai.ChatMessageRoleDeveloper, openai.ChatMessageRoleSystem:
 			// todo: test that the conversion works for both system and developer messages
 			// todo: do we assume the openai dev/system is always text? check
+
+			// TODO: fix below,it can be system param
 			systemPrompt := extractSystemOrDeveloperPrompt(msg.Value.(openai.ChatCompletionMessageParamUnion))
 			anthropicReq.System = append(anthropicReq.System, anthropic.TextBlockParam{Text: systemPrompt})
 		case openai.ChatMessageRoleTool:
@@ -312,7 +314,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 ) {
 	region := "us-east5"
 	project := ""
-	model := "claude-3-5-haiku@20241022" // TODO: make var
+	model := openAIReq.Model // TODO: make var
 	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", region, project, region, model)
 
 	// Validate max_tokens/max_completion_tokens is set
@@ -445,5 +447,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeader
 	bodyMutation = &extprocv3.BodyMutation{
 		Mutation: &extprocv3.BodyMutation_Body{Body: respBody},
 	}
-	return nil, bodyMutation, tokenUsage, nil
+	headerMutation = &extprocv3.HeaderMutation{}
+	setContentLength(headerMutation, respBody)
+	return headerMutation, bodyMutation, tokenUsage, nil
 }
