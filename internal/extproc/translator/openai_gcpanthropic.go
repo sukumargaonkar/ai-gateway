@@ -24,6 +24,7 @@ import (
 // TODO: support for "system"? https://docs.anthropic.com/en/api/messages#tool-use
 // TODO: support for mcp server field, server tier
 //TODO: support stream
+// TODO: topk is in anthropic but not openai
 
 // currently a requirement for GCP Vertex / Anthropic API https://docs.anthropic.com/en/api/claude-on-vertex-ai
 const anthropicVersion = "vertex-2023-10-16"
@@ -51,14 +52,13 @@ type anthropicRequest struct {
 	Messages         []anthropic.MessageParam       `json:"messages"`
 	MaxTokens        int64                          `json:"max_tokens"`
 	Stream           bool                           `json:"stream,omitempty"`
-	System           []anthropic.TextBlockParam     `json:"system,omitzero"`
-	StopSequences    []string                       `json:"stop_sequences,omitzero"`
+	System           []anthropic.TextBlockParam     `json:"system,omitempty"`
+	StopSequences    []string                       `json:"stop_sequences,omitempty"`
 	Model            anthropic.Model                `json:"model,omitempty"`
 	Temperature      *float64                       `json:"temperature,omitempty"`
-	Tools            []anthropic.ToolUnionParam     `json:"tools,omitzero"`
-	ToolChoice       anthropic.ToolChoiceUnionParam `json:"tool_choice,omitzero"`
-	TopP             *float64                       `json:"top_p,omitzero"`
-	TopK             *int64                         `json:"top_k,omitzero"`
+	Tools            []anthropic.ToolUnionParam     `json:"tools,omitempty"`
+	ToolChoice       anthropic.ToolChoiceUnionParam `json:"tool_choice,omitempty"`
+	TopP             *float64                       `json:"top_p,omitempty"`
 }
 
 // NewChatCompletionOpenAIToGCPAnthropicTranslator implements [Factory] for OpenAI to GCP Gemini translation.
@@ -71,7 +71,6 @@ type openAIToGCPAnthropicTranslatorV1ChatCompletion struct{}
 func anthropicToOpenAIFinishReason(reason string) openai.ChatCompletionChoicesFinishReason {
 	stopReason := anthropic.StopReason(reason)
 	switch stopReason {
-	// TODO: "pause_turn" Used with server tools like web search when Claude needs to pause a long-running operation.
 	// The most common stop reason. Indicates Claude finished its response naturally.
 	// or Claude encountered one of your custom stop sequences.
 	case anthropic.StopReasonEndTurn, anthropic.StopReasonStopSequence:
@@ -85,8 +84,21 @@ func anthropicToOpenAIFinishReason(reason string) openai.ChatCompletionChoicesFi
 	default:
 		// TODO: change/fix/test
 		// TODO: we are missing pause_turn anthropic.StopReasonPauseTurn
+		// TODO: "pause_turn" Used with server tools like web search when Claude needs to pause a long-running operation.
 		return openai.ChatCompletionChoicesFinishReason(reason)
 	}
+}
+
+// validateTemperatureForAnthropic checks if the temperature is within Anthropic's supported range (0.0 to 1.0).
+// Returns an error if the value is greater than 1.0.
+func validateTemperatureForAnthropic(temp *float64) error {
+	if temp == nil {
+		return nil
+	}
+	if *temp > 1.0 {
+		return fmt.Errorf("temperature %.2f is not supported by Anthropic (must be between 0.0 and 1.0)", *temp)
+	}
+	return nil
 }
 
 // Helper: Extract system/developer prompt from OpenAI messages and return the prompt
@@ -192,7 +204,7 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 }
 
 // RequestBody implements [Translator.RequestBody] for GCP.
-func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, onRetry bool) (
+func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, _ bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
 	region := "us-east5"
@@ -200,14 +212,16 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 	model := "claude-3-5-haiku@20241022" // TODO: make var
 	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", region, project, region, model)
 
-	// Validate max_tokens/max_completion_tokens
-	// todo: openAIReq.MaxCompletionTokens == nil -- add it?
-	if openAIReq.MaxTokens == nil {
+	// Validate max_tokens/max_completion_tokens is set
+	if openAIReq.MaxTokens == nil && openAIReq.MaxCompletionTokens == nil {
 		return nil, nil, fmt.Errorf("max_tokens is required in OpenAI request")
 	}
 
-	// todo: check if thinking a chat param? cant find in docs
+	if validateErr := validateTemperatureForAnthropic(openAIReq.Temperature); validateErr != nil {
+		return nil, nil, validateErr
+	}
 
+	// TODO: add stream support
 	if openAIReq.Stream {
 		return nil, nil, fmt.Errorf("streaming is not yet supported for GCP Anthropic translation")
 	}
@@ -215,15 +229,12 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 	anthropicReq := anthropicRequest{
 		AnthropicVersion: anthropicVersion,
 		MaxTokens:        *openAIReq.MaxTokens,
-		// todo: add stream support
 		//Stream:           openAIReq.Stream,
 		Model:       anthropic.Model(model),
 		Temperature: openAIReq.Temperature,
 		TopP:        openAIReq.TopP,
-		//TopK:             openAIReq.TopK,
-		// todo: we dont support top k?
-		// todo: add tool support
-		// todo: add tool_choice support
+		// TODO: add tool support
+		// TODO: add tool_choice support
 	}
 
 	// Validate and extract stop sequences
