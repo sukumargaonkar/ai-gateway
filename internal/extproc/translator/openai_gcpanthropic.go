@@ -347,7 +347,7 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 		}
 		contentBlocks = append(contentBlocks, anthropic.ContentBlockParamUnion{OfToolUse: &toolUse})
 	}
-	g
+
 	return &anthropic.MessageParam{
 		Role:    anthropic.MessageParamRoleAssistant,
 		Content: contentBlocks,
