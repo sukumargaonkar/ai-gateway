@@ -24,10 +24,10 @@ import (
 // Test_Examples_ProviderFallback tests the basic example in the examples/provider_fallback directory.
 func Test_Examples_ProviderFallback(t *testing.T) {
 	const baseManifest = "../../examples/provider_fallback/base.yaml"
-	require.NoError(t, kubectlApplyManifest(t.Context(), baseManifest))
-
+	const fallbackManifest = "../../examples/provider_fallback/fallback.yaml"
 	const egSelector = "gateway.envoyproxy.io/owning-gateway-name=provider-fallback"
-	requireWaitForPodReady(t, egNamespace, egSelector)
+	// Delete the fallback configuration if it exists so that multiple runs of this test do not conflict.
+	_ = kubectlDeleteManifest(t.Context(), fallbackManifest)
 
 	// This requires the following environment variables to be set:
 	//   - TEST_AWS_ACCESS_KEY_ID
@@ -46,12 +46,7 @@ func Test_Examples_ProviderFallback(t *testing.T) {
 	replaced := strings.ReplaceAll(string(read), "AWS_ACCESS_KEY_ID", cmp.Or(awsAccessKeyID, "dummy-aws-access-key-id"))
 	replaced = strings.ReplaceAll(replaced, "AWS_SECRET_ACCESS_KEY", cmp.Or(awsSecretAccessKey, "dummy-aws-secret-access-key"))
 	require.NoError(t, kubectlApplyManifestStdin(t.Context(), replaced))
-
-	const fallbackManifest = "../../examples/provider_fallback/fallback.yaml"
-	// Delete the fallback configuration if it exists.
-	_ = kubectlDeleteManifest(t.Context(), fallbackManifest)
-
-	time.Sleep(5 * time.Second) // At least 5 seconds for the configuration to be propagated.
+	requireWaitForGatewayPodReady(t, egSelector)
 
 	const body = `{"model": "us.meta.llama3-2-1b-instruct-v1:0","messages": [{"role": "user", "content": "Say this is a test!"}],"temperature": 0.7}`
 
@@ -59,7 +54,7 @@ func Test_Examples_ProviderFallback(t *testing.T) {
 	// So, no matter how many times we try, we should always get a 503 error.
 	for i := range 5 {
 		t.Run("no-fallback/"+strconv.Itoa(i), func(t *testing.T) {
-			fwd := requireNewHTTPPortForwarder(t, egNamespace, egSelector, egDefaultPort)
+			fwd := requireNewHTTPPortForwarder(t, egNamespace, egSelector, egDefaultServicePort)
 			defer fwd.kill()
 
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -87,7 +82,7 @@ func Test_Examples_ProviderFallback(t *testing.T) {
 	// At this point, the fallback configuration should be applied. So the request must be either
 	// successful or return a 401 error due to the secret key not being propagated yet.
 	require.Eventually(t, func() bool {
-		fwd := requireNewHTTPPortForwarder(t, egNamespace, egSelector, egDefaultPort)
+		fwd := requireNewHTTPPortForwarder(t, egNamespace, egSelector, egDefaultServicePort)
 		defer fwd.kill()
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -113,7 +108,7 @@ func Test_Examples_ProviderFallback(t *testing.T) {
 	// Now we should be able to get a response from the fallback provider (AWS) without dropping any requests.
 	for i := range 5 {
 		t.Run("with-fallback/"+strconv.Itoa(i), func(t *testing.T) {
-			fwd := requireNewHTTPPortForwarder(t, egNamespace, egSelector, egDefaultPort)
+			fwd := requireNewHTTPPortForwarder(t, egNamespace, egSelector, egDefaultServicePort)
 			defer fwd.kill()
 
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)

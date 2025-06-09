@@ -37,6 +37,7 @@ func TestWithTestUpstream(t *testing.T) {
 	requireRunEnvoy(t, accessLogPath)
 	configPath := t.TempDir() + "/extproc-config.yaml"
 	requireTestUpstream(t)
+	now := time.Unix(int64(time.Now().Second()), 0).UTC()
 
 	requireWriteFilterConfig(t, configPath, &filterapi.Config{
 		MetadataNamespace: "ai_gateway_llm_ns",
@@ -52,16 +53,25 @@ func TestWithTestUpstream(t *testing.T) {
 				Name:    "testupstream-openai-route",
 				Headers: []filterapi.HeaderMatch{{Name: "x-test-backend", Value: "openai"}},
 				Backends: []filterapi.Backend{
-					{Name: "testupstream-openai", Schema: openAISchema},
+					testUpstreamOpenAIBackend,
+					testUpstreamAAWSBackend,
 				},
 			},
 			{
 				Name:    "testupstream-aws-route",
 				Headers: []filterapi.HeaderMatch{{Name: "x-test-backend", Value: "aws-bedrock"}},
+				Backends: []filterapi.Backend{
+					alwaysFailingBackend,
+					testUpstreamAAWSBackend,
+				},
 			},
 			{
 				Name:    "testupstream-azure-route",
 				Headers: []filterapi.HeaderMatch{{Name: "x-test-backend", Value: "azure-openai"}},
+				Backends: []filterapi.Backend{
+					alwaysFailingBackend,
+					testUpstreamAzureBackend,
+				},
 			},
 			{
 				Name: "not-used-for-completion",
@@ -70,7 +80,9 @@ func TestWithTestUpstream(t *testing.T) {
 					{Name: "x-model-name", Value: "some-model2"},
 					{Name: "x-model-name", Value: "some-model3"},
 				},
-				Backends: fakeBackends,
+				Backends:        []filterapi.Backend{alwaysFailingBackend},
+				ModelsOwnedBy:   "Envoy AI Gateway",
+				ModelsCreatedAt: now,
 			},
 		},
 	})
@@ -78,9 +90,9 @@ func TestWithTestUpstream(t *testing.T) {
 	expectedModels := openai.ModelList{
 		Object: "list",
 		Data: []openai.Model{
-			{ID: "some-model1", Object: "model", OwnedBy: "Envoy AI Gateway"},
-			{ID: "some-model2", Object: "model", OwnedBy: "Envoy AI Gateway"},
-			{ID: "some-model3", Object: "model", OwnedBy: "Envoy AI Gateway"},
+			{ID: "some-model1", Object: "model", OwnedBy: "Envoy AI Gateway", Created: openai.JSONUNIXTime(now)},
+			{ID: "some-model2", Object: "model", OwnedBy: "Envoy AI Gateway", Created: openai.JSONUNIXTime(now)},
+			{ID: "some-model3", Object: "model", OwnedBy: "Envoy AI Gateway", Created: openai.JSONUNIXTime(now)},
 		},
 	}
 
@@ -144,6 +156,18 @@ func TestWithTestUpstream(t *testing.T) {
 		{
 			name:            "openai - /v1/chat/completions",
 			backend:         "openai",
+			path:            "/v1/chat/completions",
+			method:          http.MethodPost,
+			requestBody:     `{"model":"something","messages":[{"role":"system","content":"You are a chatbot."}]}`,
+			expPath:         "/v1/chat/completions",
+			responseBody:    `{"choices":[{"message":{"content":"This is a test."}}]}`,
+			expStatus:       http.StatusOK,
+			expResponseBody: `{"choices":[{"message":{"content":"This is a test."}}]}`,
+		},
+		{
+			name:            "openai - /v1/chat/completions - gzip",
+			backend:         "openai",
+			responseType:    "gzip",
 			path:            "/v1/chat/completions",
 			method:          http.MethodPost,
 			requestBody:     `{"model":"something","messages":[{"role":"system","content":"You are a chatbot."}]}`,
@@ -253,7 +277,7 @@ data: [DONE]
 			path:                "/v1/models",
 			method:              http.MethodGet,
 			expStatus:           http.StatusOK,
-			expResponseBodyFunc: checkModelsIgnoringTimestamps(expectedModels),
+			expResponseBodyFunc: checkModels(expectedModels),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -367,7 +391,7 @@ data: [DONE]
 		require.NoError(t, stream.Err())
 	})
 	t.Run("metrics", func(t *testing.T) {
-		req, err := http.NewRequest(http.MethodGet, "http://localhost:9190/metrics", nil)
+		req, err := http.NewRequest(http.MethodGet, "http://localhost:1064/metrics", nil)
 		require.NoError(t, err)
 
 		resp, err := http.DefaultClient.Do(req)
@@ -379,14 +403,11 @@ data: [DONE]
 	})
 }
 
-func checkModelsIgnoringTimestamps(want openai.ModelList) func(t require.TestingT, body []byte) {
+func checkModels(want openai.ModelList) func(t require.TestingT, body []byte) {
 	return func(t require.TestingT, body []byte) {
 		var models openai.ModelList
 		require.NoError(t, json.Unmarshal(body, &models))
 		require.Len(t, models.Data, len(want.Data))
-		for i := range models.Data {
-			models.Data[i].Created = want.Data[i].Created
-		}
 		require.Equal(t, want, models)
 	}
 }

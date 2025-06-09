@@ -57,6 +57,14 @@ func ChatCompletionProcessorFactory(ccm x.ChatCompletionMetrics) ProcessorFactor
 // This is primarily used to select the route for the request based on the model name.
 type chatCompletionProcessorRouterFilter struct {
 	passThroughProcessor
+	// upstreamFilter is the upstream filter that is used to process the request at the upstream filter.
+	// This will be updated when the request is retried.
+	//
+	// On the response handling path, we don't need to do any operation until successful, so we use the implementation
+	// of the upstream filter to handle the response at the router filter.
+	//
+	// TODO: this is a bit of a hack and dirty workaround, so revert this to a cleaner design later.
+	upstreamFilter Processor
 	logger         *slog.Logger
 	config         *processorConfig
 	requestHeaders map[string]string
@@ -68,6 +76,26 @@ type chatCompletionProcessorRouterFilter struct {
 	// upstreamFilterCount is the number of upstream filters that have been processed.
 	// This is used to determine if the request is a retry request.
 	upstreamFilterCount int
+}
+
+// ProcessResponseHeaders implements [Processor.ProcessResponseHeaders].
+func (c *chatCompletionProcessorRouterFilter) ProcessResponseHeaders(ctx context.Context, headerMap *corev3.HeaderMap) (*extprocv3.ProcessingResponse, error) {
+	// If the request failed to route and/or immediate response was returned before the upstream filter was set,
+	// c.upstreamFilter can be nil.
+	if c.upstreamFilter != nil { // See the comment on the "upstreamFilter" field.
+		return c.upstreamFilter.ProcessResponseHeaders(ctx, headerMap)
+	}
+	return c.passThroughProcessor.ProcessResponseHeaders(ctx, headerMap)
+}
+
+// ProcessResponseBody implements [Processor.ProcessResponseBody].
+func (c *chatCompletionProcessorRouterFilter) ProcessResponseBody(ctx context.Context, body *extprocv3.HttpBody) (*extprocv3.ProcessingResponse, error) {
+	// If the request failed to route and/or immediate response was returned before the upstream filter was set,
+	// c.upstreamFilter can be nil.
+	if c.upstreamFilter != nil { // See the comment on the "upstreamFilter" field.
+		return c.upstreamFilter.ProcessResponseBody(ctx, body)
+	}
+	return c.passThroughProcessor.ProcessResponseBody(ctx, body)
 }
 
 // ProcessRequestBody implements [Processor.ProcessRequestBody].
@@ -243,12 +271,14 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 		c.metrics.RecordRequestCompletion(ctx, err == nil)
 	}()
 	var br io.Reader
+	var isGzip bool
 	switch c.responseEncoding {
 	case "gzip":
 		br, err = gzip.NewReader(bytes.NewReader(body.Body))
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode gzip: %w", err)
 		}
+		isGzip = true
 	default:
 		br = bytes.NewReader(body.Body)
 	}
@@ -256,6 +286,18 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 	headerMutation, bodyMutation, tokenUsage, err := c.translator.ResponseBody(c.responseHeaders, br, body.EndOfStream)
 	if err != nil {
 		return nil, fmt.Errorf("failed to transform response: %w", err)
+	}
+	if bodyMutation != nil && isGzip {
+		if headerMutation == nil {
+			headerMutation = &extprocv3.HeaderMutation{}
+		}
+		// TODO: this is a hotfix, we should update this to recompress since its in the header
+		// If the response was gzipped, ensure we remove the content-encoding header.
+		//
+		// This is only needed when the transformation is actually modifying the body. When the backend
+		// is in OpenAI format (and it's the first try before any retry), the response body is not modified,
+		// so we don't need to remove the header in that case.
+		headerMutation.RemoveHeaders = append(headerMutation.RemoveHeaders, "content-encoding")
 	}
 
 	resp := &extprocv3.ProcessingResponse{
@@ -311,6 +353,7 @@ func (c *chatCompletionProcessorUpstreamFilter) SetBackend(ctx context.Context, 
 	c.originalRequestBodyRaw = rp.originalRequestBodyRaw
 	c.onRetry = rp.upstreamFilterCount > 1
 	c.stream = c.originalRequestBody.Stream
+	rp.upstreamFilter = c
 	return
 }
 
