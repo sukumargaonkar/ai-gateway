@@ -223,30 +223,89 @@ func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockPara
 			}
 		}
 		return resultContent, nil
+	case openai.StringOrArray:
+		switch val := v.Value.(type) {
+		case string:
+			if val == "" {
+				return nil, nil
+			}
+			return []anthropic.ContentBlockParamUnion{
+				anthropic.NewTextBlock(val),
+			}, nil
+		case []openai.ChatCompletionContentPartUserUnionParam:
+			return openAIToAnthropicContent(val)
+		default:
+			return nil, fmt.Errorf("unsupported StringOrArray value type: %T", val)
+		}
 	}
 	return nil, fmt.Errorf("unsupported OpenAI content type: %T", content)
 }
 
 func extractSystemOrDeveloperPromptFromSystem(msg openai.ChatCompletionSystemMessageParam) string {
-	// If Content is a string or array, extract as needed
-	if s, ok := msg.Content.Value.(string); ok {
-		return s
-	}
-	if arr, ok := msg.Content.Value.([]openai.ChatCompletionContentPartUserUnionParam); ok && len(arr) > 0 {
-		if arr[0].TextContent != nil {
-			return arr[0].TextContent.Text
+	switch v := msg.Content.Value.(type) {
+	case string:
+		return v
+	case []openai.ChatCompletionContentPartUserUnionParam:
+		// Concatenate all text parts for completeness
+		var sb strings.Builder
+		for _, part := range v {
+			if part.TextContent != nil {
+				sb.WriteString(part.TextContent.Text)
+			}
+		}
+		return sb.String()
+	case nil:
+		return ""
+	default:
+		// If msg.Content is a StringOrArray, unwrap it
+		if soarr, ok := msg.Content.Value.(openai.StringOrArray); ok {
+			switch val := soarr.Value.(type) {
+			case string:
+				return val
+			case []openai.ChatCompletionContentPartUserUnionParam:
+				var sb strings.Builder
+				for _, part := range val {
+					if part.TextContent != nil {
+						sb.WriteString(part.TextContent.Text)
+					}
+				}
+				return sb.String()
+			}
 		}
 	}
 	return ""
 }
 
 func extractSystemOrDeveloperPromptFromDeveloper(msg openai.ChatCompletionDeveloperMessageParam) string {
-	if s, ok := msg.Content.Value.(string); ok {
-		return s
-	}
-	if arr, ok := msg.Content.Value.([]openai.ChatCompletionContentPartUserUnionParam); ok && len(arr) > 0 {
-		if arr[0].TextContent != nil {
-			return arr[0].TextContent.Text
+	switch v := msg.Content.Value.(type) {
+	case string:
+		return v
+	case []openai.ChatCompletionContentPartUserUnionParam:
+		// Concatenate all text parts for completeness
+		var sb strings.Builder
+		for _, part := range v {
+			if part.TextContent != nil {
+				sb.WriteString(part.TextContent.Text)
+			}
+		}
+		return sb.String()
+	case nil:
+		return ""
+	default:
+		// If msg.Content is a StringOrArray, unwrap it
+		if soarr, ok := msg.Content.Value.(openai.StringOrArray); ok {
+			switch val := soarr.Value.(type) {
+			case string:
+				return val
+			case []openai.ChatCompletionContentPartUserUnionParam:
+				var sb strings.Builder
+				for _, part := range val {
+					if part.TextContent != nil {
+						sb.WriteString(part.TextContent.Text)
+					}
+				}
+				return sb.String()
+			}
 		}
 	}
 	return ""
@@ -327,6 +386,7 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 		case openai.ChatMessageRoleDeveloper, openai.ChatMessageRoleSystem:
 			var systemPrompt string
 			switch v := msg.Value.(type) {
+			// TODO: support openai.StringOrArray value
 			case openai.ChatCompletionSystemMessageParam:
 				systemPrompt = extractSystemOrDeveloperPromptFromSystem(v)
 			case openai.ChatCompletionDeveloperMessageParam:
