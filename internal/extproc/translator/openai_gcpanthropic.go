@@ -24,9 +24,8 @@ import (
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
-// TODO: support for "system"? https://docs.anthropic.com/en/api/messages#tool-use
-// TODO: support for mcp server field, server tier
-//TODO: support stream
+// TODO: support for mcp server field, server tier(?)
+// TODO: support stream
 // TODO: topk is in anthropic but not openai
 
 // currently a requirement for GCP Vertex / Anthropic API https://docs.anthropic.com/en/api/claude-on-vertex-ai
@@ -59,7 +58,8 @@ type anthropicRequest struct {
 	StopSequences    []string                   `json:"stop_sequences,omitempty"`
 	Model            anthropic.Model            `json:"model,omitempty"`
 	Temperature      *float64                   `json:"temperature,omitempty"`
-	Tools            []anthropic.ToolUnionParam `json:"tools,omitempty"`
+	// TODO: support tools & tool choice
+	Tools []anthropic.ToolUnionParam `json:"tools,omitempty"`
 	// ToolChoice       anthropic.ToolChoiceUnionParam `json:"tool_choice,omitempty"`
 	TopP *float64 `json:"top_p,omitempty"`
 }
