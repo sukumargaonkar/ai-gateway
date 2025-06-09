@@ -347,7 +347,7 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 		}
 		contentBlocks = append(contentBlocks, anthropic.ContentBlockParamUnion{OfToolUse: &toolUse})
 	}
-
+	g
 	return &anthropic.MessageParam{
 		Role:    anthropic.MessageParamRoleAssistant,
 		Content: contentBlocks,
@@ -386,13 +386,12 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 		case openai.ChatMessageRoleDeveloper, openai.ChatMessageRoleSystem:
 			var systemPrompt string
 			switch v := msg.Value.(type) {
-			// TODO: support openai.StringOrArray value
 			case openai.ChatCompletionSystemMessageParam:
 				systemPrompt = extractSystemOrDeveloperPromptFromSystem(v)
 			case openai.ChatCompletionDeveloperMessageParam:
 				systemPrompt = extractSystemOrDeveloperPromptFromDeveloper(v)
 			default:
-				panic(fmt.Sprintf("unexpected type for system/developer message: %T", msg.Value))
+				return fmt.Errorf("unexpected type for system/developer message: %T", msg.Value)
 			}
 			anthropicReq.System = append(anthropicReq.System, anthropic.TextBlockParam{Text: systemPrompt})
 		case openai.ChatMessageRoleTool:
