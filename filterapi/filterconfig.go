@@ -238,6 +238,10 @@ type GCPAuth struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	CredentialFileName string `json:"credentialFileName,omitempty"`
+	// Region is the GCP region to use for the request.
+	Region string `json:"region"`
+	// ProjectName is the GCP project name to use for the request.
+	ProjectName string `json:"projectName"`
 }
 
 // UnmarshalConfigYaml reads the file at the given path and unmarshals it into a Config struct.

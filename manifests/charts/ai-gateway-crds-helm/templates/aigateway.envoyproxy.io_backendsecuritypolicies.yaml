@@ -2525,9 +2525,7 @@ spec:
                 - workLoadIdentityFederationConfig
                 type: object
               type:
-                description: Type specifies the auth mechanism used to access the
-                  provider. Currently, only "APIKey", "AWSCredentials", and "AzureCredentials"
-                  are supported.
+                description: Type specifies the type of the backend security policy.
                 enum:
                 - APIKey
                 - AWSCredentials

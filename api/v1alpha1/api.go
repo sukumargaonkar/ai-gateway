@@ -474,7 +474,7 @@ type BackendSecurityPolicy struct {
 // Only one type of BackendSecurityPolicy can be defined.
 // +kubebuilder:validation:MaxProperties=2
 type BackendSecurityPolicySpec struct {
-	// Type specifies the auth mechanism used to access the provider. Currently, only "APIKey", "AWSCredentials", and "AzureCredentials" are supported.
+	// Type specifies the type of the backend security policy.
 	//
 	// +kubebuilder:validation:Enum=APIKey;AWSCredentials;AzureCredentials;GCPCredentials
 	Type BackendSecurityPolicyType `json:"type"`
@@ -559,9 +559,13 @@ type GCPWorkLoadIdentityFederationConfig struct {
 	// This is used to impersonate a service account when getting access token.
 	//
 	// +optional
-	ServiceAccountImpersonation *GCPServiceAccountImpersonationConfig `json:"serviceAccountImpersonation"`
+	ServiceAccountImpersonation *GCPServiceAccountImpersonationConfig `json:"serviceAccountImpersonation,omitempty"`
 }
 
+// GCPWorkloadIdentityProvider specifies the external identity provider to be used to authenticate against GCP.
+// The external identity provider can be AWS, Microsoft, etc but must be pre-registered in the GCP project
+//
+// https://cloud.google.com/iam/docs/workload-identity-federation
 type GCPWorkloadIdentityProvider struct {
 	// Name of the external identity provider as registered on Google Cloud Platform.
 	//
