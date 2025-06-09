@@ -12,11 +12,17 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
+)
+
+const (
+	GCPRegionTemplateKey  = "gcpRegion"
+	GCPProjectTemplateKey = "gcpProjectName"
 )
 
 // NewChatCompletionOpenAIToGCPGeminiTranslator implements [Factory] for OpenAI to GCP Gemini translation.
@@ -27,14 +33,16 @@ func NewChatCompletionOpenAIToGCPGeminiTranslator() OpenAIChatCompletionTranslat
 type openAIToGCPGeminiTranslatorV1ChatCompletion struct{}
 
 // RequestBody implements [Translator.RequestBody] for GCP Gemini.
-func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) RequestBody(_ []byte, req *openai.ChatCompletionRequest, onRetry bool) (
+func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, onRetry bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
 	// TODO: Implement actual translation from OpenAI to Gemini request.
 	// For now we just hardcoded an example request
-	region := "<REPLACE-ME>"
-	project := "<REPLACE-ME>"
-	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/gemini-2.0-flash-001:generateContent", region, project, region)
+
+	model := openAIReq.Model
+	model = strings.TrimPrefix(model, "gcp.")
+	gcpReqPathTemplate := fmt.Sprintf("https://{{.%s}}-aiplatform.googleapis.com/v1/projects/{{.%s}}/locations/{{.%s}}/publishers/google/models/%s:generateContent", GCPRegionTemplateKey, GCPProjectTemplateKey, GCPRegionTemplateKey, model)
+
 	gcpReqBody := []byte(`{
   "contents": {
     "role": "user",
@@ -49,7 +57,7 @@ func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) RequestBody(_ []byte, req 
 		SetHeaders: []*corev3.HeaderValueOption{
 			{Header: &corev3.HeaderValue{
 				Key:      ":path",
-				RawValue: []byte(gcpReqPath),
+				RawValue: []byte(gcpReqPathTemplate),
 			}},
 			{Header: &corev3.HeaderValue{
 				Key:      "content-length",

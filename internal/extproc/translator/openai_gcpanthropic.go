@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
@@ -27,14 +28,16 @@ func NewChatCompletionOpenAIToGCPAnthropicTranslator() OpenAIChatCompletionTrans
 type openAIToGCPAnthropicTranslatorV1ChatCompletion struct{}
 
 // RequestBody implements [Translator.RequestBody] for GCP Gemini.
-func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, req *openai.ChatCompletionRequest, onRetry bool) (
+func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, onRetry bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
+	_ = onRetry
+	model := openAIReq.Model
+	model = strings.TrimPrefix(model, "gcp.")
+	gcpReqPathTemplate := fmt.Sprintf("https://{{.%s}}-aiplatform.googleapis.com/v1/projects/{{.%s}}/locations/{{.%s}}/publishers/anthropic/models/%s:rawPredict", GCPRegionTemplateKey, GCPProjectTemplateKey, GCPRegionTemplateKey, model)
+
 	// TODO: Implement actual translation from OpenAI to Anthropic request.
 	// For now we just hardcoded an example request
-	region := "<REPLACE-ME>"
-	project := "<REPLACE-ME>"
-	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/claude-3-5-haiku@20241022:rawPredict", region, project, region)
 	gcpReqBody := []byte(`{
   "anthropic_version": "vertex-2023-10-16",
   "messages": [
@@ -57,7 +60,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, r
 			{
 				Header: &corev3.HeaderValue{
 					Key:      ":path",
-					RawValue: []byte(gcpReqPath),
+					RawValue: []byte(gcpReqPathTemplate),
 				},
 			},
 			{
