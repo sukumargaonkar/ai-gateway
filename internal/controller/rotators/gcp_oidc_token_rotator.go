@@ -70,7 +70,7 @@ func NewGCPOIDCTokenRotator(
 		return nil, fmt.Errorf("invalid backend security policy, gcp credentials cannot be nil")
 	}
 
-	oidcConfig := bsp.Spec.GCPCredentials.WorkLoadIdentityFederationConfig.WorkloadIdentityProvider.OIDCConfig.OIDC
+	oidcConfig := bsp.Spec.GCPCredentials.WorkLoadIdentityFederationConfig.WorkloadIdentityProvider.OIDCProvider.OIDC
 	oidcProvider, err := tokenprovider.NewOidcTokenProvider(ctx, client, &oidcConfig)
 	if err != nil {
 		logger.Error(err, "failed to construct oidc provider")
@@ -117,7 +117,7 @@ func (r *gcpOIDCTokenRotator) Rotate(ctx context.Context) (time.Time, error) {
 
 	r.logger.Info("start rotating gcp access token", "namespace", r.backendSecurityPolicyNamespace, "name", r.backendSecurityPolicyName)
 
-	// 1. Get OIDCConfig Token
+	// 1. Get OIDCProvider Token
 	oidcTokenExpiry, err := r.oidcProvider.GetToken(ctx)
 	if err != nil {
 		r.logger.Error(err, "failed to get token from oidc provider", "oidcIssuer", r.gcpCredentials.WorkLoadIdentityFederationConfig.WorkloadIdentityProvider.Name)
