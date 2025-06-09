@@ -157,12 +157,9 @@ func TestSystemAndDeveloperPromptExtraction(t *testing.T) {
 			Messages: []openai.ChatCompletionMessageParamUnion{
 				{
 					Type: openai.ChatMessageRoleSystem,
-					Value: openai.ChatCompletionMessageParamUnion{
-						Type: openai.ChatMessageRoleSystem,
-						Value: openai.ChatCompletionSystemMessageParam{
-							Role:    openai.ChatMessageRoleSystem,
-							Content: openai.StringOrArray{Value: "You are a helpful assistant."},
-						},
+					Value: openai.ChatCompletionSystemMessageParam{
+						Role:    openai.ChatMessageRoleSystem,
+						Content: openai.StringOrArray{Value: "You are a helpful assistant."},
 					},
 				},
 				{
@@ -221,7 +218,7 @@ func TestSystemAndDeveloperPromptExtraction(t *testing.T) {
 		var got anthropicRequest
 		err = json.Unmarshal(newBody, &got)
 		require.NoError(t, err)
-		require.Equal(t, "You are a system array.", got.System)
+		require.Equal(t, "You are a system array.", got.System[0].Text)
 		require.Len(t, got.Messages, 1)
 		require.Equal(t, anthropic.MessageParamRoleUser, got.Messages[0].Role)
 		require.Contains(t, *got.Messages[0].Content[0].GetText(), "Hi!")
@@ -302,6 +299,7 @@ func TestSystemAndDeveloperPromptExtraction(t *testing.T) {
 	})
 
 	t.Run("assistant message with content and tool_calls", func(t *testing.T) {
+		toolID := "tool-id-1"
 		input := openai.ChatCompletionRequest{
 			Stream: false,
 			Model:  "claude-3-5-haiku",
@@ -309,13 +307,15 @@ func TestSystemAndDeveloperPromptExtraction(t *testing.T) {
 				{
 					Type: openai.ChatMessageRoleAssistant,
 					Value: openai.ChatCompletionAssistantMessageParam{
-						Role: openai.ChatMessageRoleAssistant,
 						Content: openai.StringOrAssistantRoleContentUnion{
-							Value: "Here is a tool result.",
+							Value: openai.ChatCompletionAssistantMessageParamContent{
+								Type: openai.ChatCompletionAssistantMessageParamContentTypeText,
+								Text: ptr.To("Here is a tool result."),
+							},
 						},
 						ToolCalls: []openai.ChatCompletionMessageToolCallParam{
 							{
-								ID: "tool-id-1",
+								ID: toolID,
 								Function: openai.ChatCompletionMessageToolCallFunctionParam{
 									Name:      "get_weather",
 									Arguments: `{"location":"NYC"}`,
@@ -343,7 +343,7 @@ func TestSystemAndDeveloperPromptExtraction(t *testing.T) {
 			if c.GetText() != nil && *c.GetText() == "Here is a tool result." {
 				foundText = true
 			}
-			if *c.GetToolUseID() == "tool-id-1" {
+			if c.OfToolUse != nil && c.OfToolUse.ID == toolID {
 				foundToolUse = true
 			}
 		}

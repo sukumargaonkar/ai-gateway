@@ -163,7 +163,7 @@ func toAnthropicToolUse(
 		}
 		toolUse := anthropic.ToolUseBlockParam{
 			ID:    toolCall.ID,
-			Type:  "tool_use", //TODO: use constant
+			Type:  "tool_use",
 			Name:  toolCall.Function.Name,
 			Input: input,
 		}
@@ -227,6 +227,74 @@ func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockPara
 	return nil, fmt.Errorf("unsupported OpenAI content type: %T", content)
 }
 
+func extractSystemOrDeveloperPromptFromSystem(msg openai.ChatCompletionSystemMessageParam) string {
+	// If Content is a string or array, extract as needed
+	if s, ok := msg.Content.Value.(string); ok {
+		return s
+	}
+	if arr, ok := msg.Content.Value.([]openai.ChatCompletionContentPartUserUnionParam); ok && len(arr) > 0 {
+		if arr[0].TextContent != nil {
+			return arr[0].TextContent.Text
+		}
+	}
+	return ""
+}
+
+func extractSystemOrDeveloperPromptFromDeveloper(msg openai.ChatCompletionDeveloperMessageParam) string {
+	if s, ok := msg.Content.Value.(string); ok {
+		return s
+	}
+	if arr, ok := msg.Content.Value.([]openai.ChatCompletionContentPartUserUnionParam); ok && len(arr) > 0 {
+		if arr[0].TextContent != nil {
+			return arr[0].TextContent.Text
+		}
+	}
+	return ""
+}
+
+// openAIMessageToAnthropicMessageRoleAssistant converts an OpenAI assistant message to Anthropic content blocks.
+// The tool_use content is appended to the Anthropic message content list if tool_calls are present.
+func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatCompletionAssistantMessageParam) (*anthropic.MessageParam, error) {
+	contentBlocks := make([]anthropic.ContentBlockParamUnion, 0)
+	// Handle text/refusal content
+	if v, ok := openAiMessage.Content.Value.(string); ok && len(v) > 0 {
+		contentBlocks = append(contentBlocks, anthropic.NewTextBlock(v))
+	} else if content, ok := openAiMessage.Content.Value.(openai.ChatCompletionAssistantMessageParamContent); ok {
+		switch content.Type {
+		case openai.ChatCompletionAssistantMessageParamContentTypeRefusal:
+			if content.Refusal != nil {
+				contentBlocks = append(contentBlocks, anthropic.NewTextBlock(*content.Refusal))
+			}
+		case openai.ChatCompletionAssistantMessageParamContentTypeText:
+			if content.Text != nil {
+				contentBlocks = append(contentBlocks, anthropic.NewTextBlock(*content.Text))
+			}
+			// TODO: Add more cases here if you support images, etc.
+		}
+	}
+
+	// Handle tool_calls (if any)
+	for i := range openAiMessage.ToolCalls {
+		toolCall := &openAiMessage.ToolCalls[i]
+		var input map[string]interface{}
+		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &input); err != nil {
+			return nil, err
+		}
+		toolUse := anthropic.ToolUseBlockParam{
+			ID:    toolCall.ID,
+			Type:  "tool_use",
+			Name:  toolCall.Function.Name,
+			Input: input,
+		}
+		contentBlocks = append(contentBlocks, anthropic.ContentBlockParamUnion{OfToolUse: &toolUse})
+	}
+
+	return &anthropic.MessageParam{
+		Role:    anthropic.MessageParamRoleAssistant,
+		Content: contentBlocks,
+	}, nil
+}
+
 // openAIMessageToGCPAnthropicMessage converts OpenAI messages to Anthropic messages, handling all roles and system/developer logic
 func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest, anthropicReq *anthropicRequest) (err error) {
 	anthropicReq.Messages = make([]anthropic.MessageParam, 0, len(openAIReq.Messages))
@@ -246,29 +314,26 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 			}
 			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
 		case openai.ChatMessageRoleAssistant:
-			message := msg.Value.(openai.ChatCompletionAssistantMessageParam)
+			assistantMessage := msg.Value.(openai.ChatCompletionAssistantMessageParam)
 
-			var content []anthropic.ContentBlockParamUnion
-			content, err = openAIToAnthropicContent(message.Content.Value)
+			var messages *anthropic.MessageParam
+			messages, err = openAIMessageToAnthropicMessageRoleAssistant(&assistantMessage)
 			if err != nil {
 				return err
 			}
-			var toolUseBlocks []anthropic.ToolUseBlockParam
-			toolUseBlocks, err = toAnthropicToolUse(message.ToolCalls)
-			for _, t := range toolUseBlocks {
-				content = append(content, anthropic.ContentBlockParamUnion{OfToolUse: &t})
-			}
-			anthropicMsg := anthropic.MessageParam{
-				Role:    anthropic.MessageParamRoleAssistant,
-				Content: content,
-			}
-			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
-		case openai.ChatMessageRoleDeveloper, openai.ChatMessageRoleSystem:
-			// todo: test that the conversion works for both system and developer messages
-			// todo: do we assume the openai dev/system is always text? check
 
-			// TODO: fix below,it can be system param
-			systemPrompt := extractSystemOrDeveloperPrompt(msg.Value.(openai.ChatCompletionMessageParamUnion))
+			// TODO: check works with multi tool
+			anthropicReq.Messages = append(anthropicReq.Messages, *messages)
+		case openai.ChatMessageRoleDeveloper, openai.ChatMessageRoleSystem:
+			var systemPrompt string
+			switch v := msg.Value.(type) {
+			case openai.ChatCompletionSystemMessageParam:
+				systemPrompt = extractSystemOrDeveloperPromptFromSystem(v)
+			case openai.ChatCompletionDeveloperMessageParam:
+				systemPrompt = extractSystemOrDeveloperPromptFromDeveloper(v)
+			default:
+				panic(fmt.Sprintf("unexpected type for system/developer message: %T", msg.Value))
+			}
 			anthropicReq.System = append(anthropicReq.System, anthropic.TextBlockParam{Text: systemPrompt})
 		case openai.ChatMessageRoleTool:
 			toolMsg := msg.Value.(openai.ChatCompletionToolMessageParam)
@@ -303,7 +368,6 @@ func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest,
 		default:
 			return fmt.Errorf("unsupported OpenAI role type: %s", msg.Type)
 		}
-		// todo: add tool support
 	}
 	return nil
 }
