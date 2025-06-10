@@ -580,10 +580,10 @@ type GCPWorkloadIdentityProvider struct {
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 
-	// OIDCConfig is the generic OIDCConfig fields.
+	// OIDCProvider is the generic OIDCProvider fields.
 	//
 	// +kubebuilder:validation:Required
-	OIDCConfig BackendSecurityPolicyOIDC `json:"oidcConfig,inline"`
+	OIDCProvider BackendSecurityPolicyOIDC `json:"OIDCProvider"`
 }
 
 type GCPServiceAccountImpersonationConfig struct {

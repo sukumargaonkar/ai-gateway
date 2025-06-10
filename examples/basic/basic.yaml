@@ -91,21 +91,21 @@ spec:
     kind: BackendSecurityPolicy
     group: aigateway.envoyproxy.io
 ---
-# GCPGemini Example
+# GCP Example
 apiVersion: aigateway.envoyproxy.io/v1alpha1
 kind: AIServiceBackend
 metadata:
-  name: envoy-ai-gateway-basic-gcpgemini
+  name: envoy-ai-gateway-basic-gcp
   namespace: default
 spec:
   schema:
     name: GCPGemini
   backendRef:
-    name: envoy-ai-gateway-basic-gcpgemini
+    name: envoy-ai-gateway-basic-gcp
     kind: Backend
     group: gateway.envoyproxy.io
   backendSecurityPolicyRef:
-    name: envoy-ai-gateway-basic-gcpgemini-credentials
+    name: envoy-ai-gateway-basic-gcp-credentials
     kind: BackendSecurityPolicy
     group: aigateway.envoyproxy.io
 ---
@@ -169,7 +169,7 @@ spec:
 apiVersion: aigateway.envoyproxy.io/v1alpha1
 kind: BackendSecurityPolicy
 metadata:
-  name: envoy-ai-gateway-basic-gcpgemini-credentials
+  name: envoy-ai-gateway-basic-gcp-credentials
   namespace: default
 spec:
   type: GCPCredentials
@@ -185,7 +185,7 @@ spec:
               issuer: GCP_OIDC_PROVIDER_ISSUER  # Replace with your OIDC provider issuer
             clientID: GCP_OIDC_CLIENT_ID  # Replace with your OIDC client ID
             clientSecret:
-              name: envoy-ai-gateway-basic-gcpgemini-client-secret
+              name: envoy-ai-gateway-basic-gcp-client-secret
               namespace: default
 ---
 apiVersion: gateway.envoyproxy.io/v1alpha1
@@ -213,7 +213,7 @@ spec:
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: Backend
 metadata:
-  name: envoy-ai-gateway-basic-gcpgemini
+  name: envoy-ai-gateway-basic-gcp
   namespace: default
 spec:
   endpoints:
@@ -263,13 +263,13 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1alpha3
 kind: BackendTLSPolicy
 metadata:
-  name: envoy-ai-gateway-basic-gcpgemini-tls
+  name: envoy-ai-gateway-basic-gcp-tls
   namespace: default
 spec:
   targetRefs:
     - group: 'gateway.envoyproxy.io'
       kind: Backend
-      name: envoy-ai-gateway-basic-gcpgemini
+      name: envoy-ai-gateway-basic-gcp
   validation:
     wellKnownCACertificates: "System"
     hostname: us-central1-aiplatform.googleapis.com
@@ -322,7 +322,7 @@ stringData:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: envoy-ai-gateway-basic-gcpgemini-client-secret
+  name: envoy-ai-gateway-basic-gcp-client-secret
   namespace: default
 stringData:
   client-secret: "GCP_OIDC_CLIENT_SECRET"  # Replace with your OIDC client secret

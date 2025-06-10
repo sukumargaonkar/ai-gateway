@@ -1071,20 +1071,10 @@ https://cloud.google.com/iam/docs/workload-identity-federation
   required="true"
   description="Name of the external identity provider as registered on Google Cloud Platform."
 /><ApiField
-  name="oidc"
-  type="[OIDC](https://gateway.envoyproxy.io/docs/api/extension_types/#oidc)"
+  name="OIDCProvider"
+  type="[BackendSecurityPolicyOIDC](#backendsecuritypolicyoidc)"
   required="true"
-  description="OIDC is used to obtain oidc tokens via an SSO server which will be used to exchange for provider credentials."
-/><ApiField
-  name="grantType"
-  type="string"
-  required="false"
-  description="GrantType is the method application gets access token."
-/><ApiField
-  name="aud"
-  type="string"
-  required="false"
-  description="Aud defines the audience that this ID Token is intended for."
+  description="OIDCProvider is the generic OIDCProvider fields."
 />
 
 
