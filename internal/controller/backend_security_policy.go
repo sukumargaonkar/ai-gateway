@@ -92,6 +92,10 @@ func (c *BackendSecurityPolicyController) reconcile(ctx context.Context, bsp *ai
 }
 
 // rotateCredential rotates the credentials using the access token from OIDC provider and return the requeue time for next rotation.
+// This method handles different credential rotation strategies based on the BackendSecurityPolicy type:
+// - AWS Credentials: Uses AWS STS to exchange OIDC tokens for temporary AWS credentials
+// - Azure Credentials: Uses either OIDC tokens or client secrets for Azure AD authentication
+// - GCP Credentials: Uses GCP Workload Identity Federation to exchange OIDC tokens for GCP credentials
 func (c *BackendSecurityPolicyController) rotateCredential(ctx context.Context, bsp *aigv1a1.BackendSecurityPolicy) (res ctrl.Result, err error) {
 	var rotator rotators.Rotator
 
@@ -154,6 +158,23 @@ func (c *BackendSecurityPolicyController) rotateCredential(ctx context.Context, 
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+	case aigv1a1.BackendSecurityPolicyTypeGCPCredentials:
+		oidc := getBackendSecurityPolicyAuthOIDC(bsp.Spec)
+		if oidc != nil {
+			// Create a GCP OIDC token rotator that handles the full GCP Workload Identity Federation flow:
+			// 1. Get OIDC token from the configured provider
+			// 2. Exchange for GCP STS token
+			// 3. Use STS token to impersonate GCP service account
+			// 4. Store resulting access token in a Kubernetes secret
+			rotator, err = rotators.NewGCPOIDCTokenRotator(ctx, c.client, c.kube, c.logger, bsp, preRotationWindow)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			c.logger.Info("Skipping GCP OIDCProvider credentials rotation, OIDCProvider is not set on BackendSecurityPolicy.Spec")
+			return ctrl.Result{}, nil
+		}
+
 	default:
 		err = fmt.Errorf("backend security type %s does not support OIDC token exchange", bsp.Spec.Type)
 		c.logger.Error(err, "namespace", bsp.Namespace, "name", bsp.Name)

@@ -171,6 +171,15 @@ type chatCompletionProcessorUpstreamFilter struct {
 }
 
 // selectTranslator selects the translator based on the output schema.
+// This method initializes the appropriate translator for converting from OpenAI format
+// to the target LLM API format. Each supported API schema has its own specialized translator.
+//
+// Supported schema translations:
+// - OpenAI -> OpenAI (pass-through)
+// - OpenAI -> AWS Bedrock
+// - OpenAI -> Azure OpenAI
+// - OpenAI -> GCP Gemini
+// - OpenAI -> GCP Anthropic
 func (c *chatCompletionProcessorUpstreamFilter) selectTranslator(out filterapi.VersionedAPISchema) error {
 	// TODO: currently, we ignore the LLMAPISchema."Version" field.
 	switch out.Name {
@@ -180,6 +189,10 @@ func (c *chatCompletionProcessorUpstreamFilter) selectTranslator(out filterapi.V
 		c.translator = translator.NewChatCompletionOpenAIToAWSBedrockTranslator()
 	case filterapi.APISchemaAzureOpenAI:
 		c.translator = translator.NewChatCompletionOpenAIToAzureOpenAITranslator(out.Version)
+	case filterapi.APISchemaGCPGemini:
+		c.translator = translator.NewChatCompletionOpenAIToGCPGeminiTranslator()
+	case filterapi.APISchemaGCPAnthropic:
+		c.translator = translator.NewChatCompletionOpenAIToGCPAnthropicTranslator()
 	default:
 		return fmt.Errorf("unsupported API schema: backend=%s", out)
 	}

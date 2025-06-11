@@ -23,6 +23,14 @@ type Handler interface {
 }
 
 // NewHandler returns a new implementation of [Handler] based on the configuration.
+// The handler is responsible for adding appropriate authentication information to requests
+// based on the backend service type.
+//
+// Supported authentication methods:
+// - AWS Authentication (Signature v4)
+// - API Key Authentication
+// - Azure Authentication (OAuth tokens)
+// - GCP Authentication (OAuth tokens and path processing)
 func NewHandler(ctx context.Context, config *filterapi.BackendAuth) (Handler, error) {
 	switch {
 	case config.AWSAuth != nil:
@@ -31,6 +39,8 @@ func NewHandler(ctx context.Context, config *filterapi.BackendAuth) (Handler, er
 		return newAPIKeyHandler(config.APIKey)
 	case config.AzureAuth != nil:
 		return newAzureHandler(config.AzureAuth)
+	case config.GCPAuth != nil:
+		return newGCPHandler(config.GCPAuth)
 	default:
 		return nil, errors.New("no backend auth handler found")
 	}

@@ -137,9 +137,18 @@ type VersionedAPISchema struct {
 type APISchemaName string
 
 const (
-	APISchemaOpenAI      APISchemaName = "OpenAI"
-	APISchemaAWSBedrock  APISchemaName = "AWSBedrock"
+	// APISchemaOpenAI represents the standard OpenAI API schema.
+	APISchemaOpenAI APISchemaName = "OpenAI"
+	// APISchemaAWSBedrock represents the AWS Bedrock API schema.
+	APISchemaAWSBedrock APISchemaName = "AWSBedrock"
+	// APISchemaAzureOpenAI represents the Azure OpenAI API schema.
 	APISchemaAzureOpenAI APISchemaName = "AzureOpenAI"
+	// APISchemaGCPGemini represents the Google Cloud Gemini API schema.
+	// Used for Gemini models hosted on Google Cloud Vertex AI.
+	APISchemaGCPGemini APISchemaName = "GCPGemini"
+	// APISchemaGCPAnthropic represents the Google Cloud Anthropic API schema.
+	// Used for Claude models hosted on Google Cloud Vertex AI.
+	APISchemaGCPAnthropic APISchemaName = "GCPAnthropic"
 )
 
 // HeaderMatch is an alias for HTTPHeaderMatch of the Gateway API.
@@ -226,11 +235,8 @@ type AzureAuth struct {
 
 // GCPAuth defines the file containing GCP credential that will be mounted to the external proc.
 type GCPAuth struct {
-	// CredentialFileName is the name of the file containing the GCP credential.
-	//
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=1
-	CredentialFileName string `json:"credentialFileName,omitempty"`
+	// AccessToken is the access token as a literal string.
+	AccessToken string `json:"accessToken"`
 	// Region is the GCP region to use for the request.
 	Region string `json:"region"`
 	// ProjectName is the GCP project name to use for the request.
