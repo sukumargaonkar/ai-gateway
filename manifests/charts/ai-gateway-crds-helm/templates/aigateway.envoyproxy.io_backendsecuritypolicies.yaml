@@ -2470,6 +2470,8 @@ spec:
                   GCP specific logic will be applied.
                 properties:
                   workLoadIdentityFederationConfig:
+                    description: WorkLoadIdentityFederationConfig is the configuration
+                      for the GCP Workload Identity Federation.
                     properties:
                       projectID:
                         description: ProjectID is the GCP project ID.

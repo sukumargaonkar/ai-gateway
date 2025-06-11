@@ -601,6 +601,9 @@ type GCPServiceAccountImpersonationConfig struct {
 
 // BackendSecurityPolicyGCPCredentials contains the supported authentication mechanisms to access GCP.
 type BackendSecurityPolicyGCPCredentials struct {
+	// WorkLoadIdentityFederationConfig is the configuration for the GCP Workload Identity Federation.
+	//
+	// +kubebuilder:validation:Required
 	WorkLoadIdentityFederationConfig GCPWorkLoadIdentityFederationConfig `json:"workLoadIdentityFederationConfig"`
 }
 
