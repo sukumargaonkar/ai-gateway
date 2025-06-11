@@ -226,11 +226,8 @@ type AzureAuth struct {
 
 // GCPAuth defines the file containing GCP credential that will be mounted to the external proc.
 type GCPAuth struct {
-	// CredentialFileName is the name of the file containing the GCP credential.
-	//
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinLength=1
-	CredentialFileName string `json:"credentialFileName,omitempty"`
+	// AccessToken is the access token as a literal string.
+	AccessToken string `json:"accessToken"`
 	// Region is the GCP region to use for the request.
 	Region string `json:"region"`
 	// ProjectName is the GCP project name to use for the request.
