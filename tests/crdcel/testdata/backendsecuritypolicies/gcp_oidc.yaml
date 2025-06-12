@@ -12,15 +12,15 @@ spec:
   type: GCPCredentials
   gcpCredentials:
     workLoadIdentityFederationConfig:
-      projectID: GCP_PROJECT_ID  # Replace with your GCP project ID
-      workloadIdentityPoolName: GCP_WORKLOAD_IDENTITY_POOL  # Replace with your workload identity pool name
+      projectID: GCP_PROJECT_ID
+      workloadIdentityPoolName: GCP_WORKLOAD_IDENTITY_POOL
       workloadIdentityProvider:
-        name: GCP_IDENTITY_PROVIDER_NAME  # Replace with the identity provider configured with GCP
+        name: GCP_IDENTITY_PROVIDER_NAME
         OIDCProvider:
           oidc:
             provider:
-              issuer: GCP_OIDC_PROVIDER_ISSUER  # Replace with your OIDC provider issuer
-            clientID: GCP_OIDC_CLIENT_ID  # Replace with your OIDC client ID
+              issuer: GCP_OIDC_PROVIDER_ISSUER
+            clientID: GCP_OIDC_CLIENT_ID
             clientSecret:
               name: envoy-ai-gateway-basic-gcp-client-secret
               namespace: default
