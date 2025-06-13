@@ -6,6 +6,7 @@
 package translator
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -17,6 +18,419 @@ import (
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
+
+func TestDereferenceJSONSchema(t *testing.T) {
+	tests := []struct {
+		name             string
+		schema           map[string]any
+		expected         map[string]any
+		expectedErrorMsg string
+	}{
+		{
+			name: "simple internal reference",
+			schema: map[string]any{
+				"type": "object",
+				"definitions": map[string]any{
+					"person": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"name": map[string]any{
+								"type": "string",
+							},
+							"age": map[string]any{
+								"type": "integer",
+							},
+						},
+					},
+					"stringType": map[string]any{
+						"type": "string",
+					},
+				},
+				"properties": map[string]any{
+					"user": map[string]any{
+						"$ref":        "#/definitions/person",
+						"description": "User object",
+						"title":       "User",
+						"required":    []any{"name"},
+					},
+					"petNames": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"$ref": "#/definitions/stringType",
+						},
+					},
+				},
+			},
+			expected: map[string]any{
+				"type": "object",
+				"definitions": map[string]any{
+					"person": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"name": map[string]any{
+								"type": "string",
+							},
+							"age": map[string]any{
+								"type": "integer",
+							},
+						},
+					},
+					"stringType": map[string]any{
+						"type": "string",
+					},
+				},
+				"properties": map[string]any{
+					"user": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"name": map[string]any{
+								"type": "string",
+							},
+							"age": map[string]any{
+								"type": "integer",
+							},
+						},
+						"title":       "User",
+						"description": "User object",
+						"required":    []any{"name"},
+					},
+					"petNames": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "string",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "nested references",
+			schema: map[string]any{
+				"type": "object",
+				"$defs": map[string]any{
+					"address": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"street": map[string]any{
+								"type": "string",
+							},
+							"city": map[string]any{
+								"type": "string",
+							},
+						},
+					},
+					"person": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"name": map[string]any{
+								"type": "string",
+							},
+							"address": map[string]any{
+								"$ref": "#/$defs/address",
+							},
+						},
+					},
+				},
+				"properties": map[string]any{
+					"user": map[string]any{
+						"$ref": "#/$defs/person",
+					},
+				},
+			},
+			expected: map[string]any{
+				"type": "object",
+				"$defs": map[string]any{
+					"address": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"street": map[string]any{
+								"type": "string",
+							},
+							"city": map[string]any{
+								"type": "string",
+							},
+						},
+					},
+					"person": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"name": map[string]any{
+								"type": "string",
+							},
+							"address": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"street": map[string]any{
+										"type": "string",
+									},
+									"city": map[string]any{
+										"type": "string",
+									},
+								},
+							},
+						},
+					},
+				},
+				"properties": map[string]any{
+					"user": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"name": map[string]any{
+								"type": "string",
+							},
+							"address": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"street": map[string]any{
+										"type": "string",
+									},
+									"city": map[string]any{
+										"type": "string",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "JSON pointer escaping",
+			schema: map[string]any{
+				"definitions": map[string]any{
+					"field~with~tilde": map[string]any{
+						"type":        "string",
+						"description": "Field with tilde",
+					},
+					"field/with/slash": map[string]any{
+						"type":        "string",
+						"description": "Field with slash",
+					},
+				},
+				"properties": map[string]any{
+					"tilde": map[string]any{
+						"$ref": "#/definitions/field~0with~0tilde",
+					},
+					"slash": map[string]any{
+						"$ref": "#/definitions/field~1with~1slash",
+					},
+				},
+			},
+			expected: map[string]any{
+				"definitions": map[string]any{
+					"field~with~tilde": map[string]any{
+						"type":        "string",
+						"description": "Field with tilde",
+					},
+					"field/with/slash": map[string]any{
+						"type":        "string",
+						"description": "Field with slash",
+					},
+				},
+				"properties": map[string]any{
+					"tilde": map[string]any{
+						"type":        "string",
+						"description": "Field with tilde",
+					},
+					"slash": map[string]any{
+						"type":        "string",
+						"description": "Field with slash",
+					},
+				},
+			},
+		},
+		{
+			name: "reference not found",
+			schema: map[string]any{
+				"properties": map[string]any{
+					"test": map[string]any{
+						"$ref": "#/definitions/missing",
+					},
+				},
+			},
+			expectedErrorMsg: "failed to resolve JSON schema reference: #/definitions/missing - segment definitions not found",
+		},
+		{
+			name: "external reference",
+			schema: map[string]any{
+				"properties": map[string]any{
+					"test": map[string]any{
+						"$ref": "http://example.com/schema.json",
+					},
+				},
+			},
+			expectedErrorMsg: "external schema references are not supported: http://example.com/schema.json",
+		},
+		{
+			name: "empty reference",
+			schema: map[string]any{
+				"properties": map[string]any{
+					"test": map[string]any{
+						"$ref": "",
+					},
+				},
+			},
+			expectedErrorMsg: "empty $ref in JSON schema",
+		},
+		{
+			name: "reference to non-object",
+			schema: map[string]any{
+				"definitions": map[string]any{
+					"primitive": "string", // Not an object
+				},
+				"properties": map[string]any{
+					"test": map[string]any{
+						"$ref": "#/definitions/primitive",
+					},
+				},
+			},
+			expectedErrorMsg: "referenced schema is not an object: #/definitions/primitive",
+		},
+		{
+			name: "reference within array items",
+			schema: map[string]any{
+				"definitions": map[string]any{
+					"item": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id": map[string]any{
+								"type": "string",
+							},
+						},
+					},
+				},
+				"type": "object",
+				"properties": map[string]any{
+					"items": map[string]any{
+						"type": "array",
+						"items": []any{
+							map[string]any{
+								"$ref": "#/definitions/item",
+							},
+						},
+					},
+				},
+			},
+			expected: map[string]any{
+				"definitions": map[string]any{
+					"item": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id": map[string]any{
+								"type": "string",
+							},
+						},
+					},
+				},
+				"type": "object",
+				"properties": map[string]any{
+					"items": map[string]any{
+						"type": "array",
+						"items": []any{
+							map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"id": map[string]any{
+										"type": "string",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "oneOf schema composition",
+			schema: map[string]any{
+				"definitions": map[string]any{
+					"stringType": map[string]any{
+						"type": "string",
+					},
+					"integerType": map[string]any{
+						"type": "integer",
+					},
+				},
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{
+						"oneOf": []any{
+							map[string]any{
+								"$ref": "#/definitions/stringType",
+							},
+							map[string]any{
+								"$ref": "#/definitions/integerType",
+							},
+						},
+					},
+				},
+			},
+			expected: map[string]any{
+				"definitions": map[string]any{
+					"integerType": map[string]any{
+						"type": "integer",
+					},
+					"stringType": map[string]any{
+						"type": "string",
+					},
+				},
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{
+						"oneOf": []any{
+							map[string]any{
+								"type": "string",
+							},
+							map[string]any{
+								"type": "integer",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "circular references",
+			schema: map[string]any{
+				"definitions": map[string]any{
+					"person": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"name": map[string]any{
+								"type": "string",
+							},
+							"friend": map[string]any{
+								"$ref": "#/definitions/person",
+							},
+						},
+					},
+				},
+				"type": "object",
+				"properties": map[string]any{
+					"owner": map[string]any{
+						"$ref": "#/definitions/person",
+					},
+				},
+			},
+			expected:         nil,
+			expectedErrorMsg: "maximum recursion depth exceeded while dereferencing JSON schema, possible circular reference detected",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := dereferenceJSONSchema(tc.schema)
+			if tc.expectedErrorMsg != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedErrorMsg)
+			} else {
+				if d := cmp.Diff(tc.expected, result); d != "" {
+					t.Errorf("Parts mismatch (-want +got):\n%s", d)
+				}
+			}
+		})
+	}
+}
 
 func TestToGeminiContents(t *testing.T) {
 	tests := []struct {
@@ -725,10 +1139,10 @@ func TestFromUserMsg(t *testing.T) {
 
 func TestToGeminiGenerationConfig(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   *openai.ChatCompletionRequest
-		expects *genai.GenerationConfig
-		wantErr bool
+		name                     string
+		input                    *openai.ChatCompletionRequest
+		expectedGenerationConfig *genai.GenerationConfig
+		expectedErrMsg           string
 	}{
 		{
 			name: "all fields set",
@@ -744,7 +1158,7 @@ func TestToGeminiGenerationConfig(t *testing.T) {
 				FrequencyPenalty: ptr.To(float32(0.5)),
 				Stop:             []*string{ptr.To("stop1"), ptr.To("stop2")},
 			},
-			expects: &genai.GenerationConfig{
+			expectedGenerationConfig: &genai.GenerationConfig{
 				Temperature:      ptr.To(float32(0.7)),
 				TopP:             ptr.To(float32(0.9)),
 				Seed:             ptr.To(int32(42)),
@@ -756,37 +1170,480 @@ func TestToGeminiGenerationConfig(t *testing.T) {
 				FrequencyPenalty: ptr.To(float32(0.5)),
 				StopSequences:    []string{"stop1", "stop2"},
 			},
-			wantErr: false,
 		},
 		{
-			name:    "minimal fields",
-			input:   &openai.ChatCompletionRequest{},
-			expects: &genai.GenerationConfig{},
-			wantErr: false,
+			name:                     "minimal fields",
+			input:                    &openai.ChatCompletionRequest{},
+			expectedGenerationConfig: &genai.GenerationConfig{},
 		},
 		{
-			name:    "nil input",
-			input:   nil,
-			expects: nil,
-			wantErr: true,
+			name:                     "nil input",
+			input:                    nil,
+			expectedGenerationConfig: nil,
+			expectedErrMsg:           "input request is nil",
+		},
+		{
+			name: "text",
+			input: &openai.ChatCompletionRequest{
+				ResponseFormat: &openai.ChatCompletionResponseFormat{
+					Type: openai.ChatCompletionResponseFormatTypeText,
+				},
+			},
+			expectedGenerationConfig: &genai.GenerationConfig{ResponseMIMEType: "text/plain"},
+		},
+		{
+			name: "json object",
+			input: &openai.ChatCompletionRequest{
+				ResponseFormat: &openai.ChatCompletionResponseFormat{
+					Type: openai.ChatCompletionResponseFormatTypeJSONObject,
+				},
+			},
+			expectedGenerationConfig: &genai.GenerationConfig{ResponseMIMEType: "application/json"},
+		},
+		{
+			name: "json schema (map)",
+			input: &openai.ChatCompletionRequest{
+				ResponseFormat: &openai.ChatCompletionResponseFormat{
+					Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+					JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+						Schema: map[string]interface{}{
+							"type": "string",
+						},
+					},
+				},
+			},
+			expectedGenerationConfig: &genai.GenerationConfig{
+				ResponseMIMEType: "application/json",
+				ResponseSchema:   &genai.Schema{Type: genai.TypeString},
+			},
+		},
+		{
+			name: "json schema (string)",
+			input: &openai.ChatCompletionRequest{
+				ResponseFormat: &openai.ChatCompletionResponseFormat{
+					Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+					JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+						Schema: `{"type":"string"}`,
+					},
+				},
+			},
+			expectedGenerationConfig: &genai.GenerationConfig{
+				ResponseMIMEType: "application/json",
+				ResponseSchema:   &genai.Schema{Type: genai.TypeString},
+			},
+		},
+		{
+			name: "json schema (invalid string)",
+			input: &openai.ChatCompletionRequest{
+				ResponseFormat: &openai.ChatCompletionResponseFormat{
+					Type: openai.ChatCompletionResponseFormatTypeJSONSchema,
+					JSONSchema: &openai.ChatCompletionResponseFormatJSONSchema{
+						Schema: `{"type":`, // invalid JSON
+					},
+				},
+			},
+			expectedErrMsg: "invalid JSON schema string",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := toGeminiGenerationConfig(tc.input)
-			if tc.wantErr {
-				if err == nil {
-					t.Errorf("expected error but got nil")
+			if tc.expectedErrMsg != "" && err == nil {
+				t.Errorf("expected error but got nil. Expected: %s", tc.expectedErrMsg)
+				return
+			}
+			if tc.expectedErrMsg == "" && err != nil {
+				t.Errorf("unexpected error. Error: %s", err.Error())
+				return
+			}
+			if tc.expectedErrMsg != "" && err != nil && !strings.Contains(err.Error(), tc.expectedErrMsg) {
+				t.Errorf("expected error message %q but got %q", tc.expectedErrMsg, err.Error())
+				return
+			}
+
+			if diff := cmp.Diff(tc.expectedGenerationConfig, got, cmpopts.IgnoreUnexported(genai.GenerationConfig{})); diff != "" {
+				t.Errorf("GenerationConfig mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestToGeminiSchema(t *testing.T) {
+	tests := []struct {
+		name           string
+		schema         map[string]any
+		expected       *genai.Schema
+		expectedErrMsg string
+	}{
+		{
+			name: "string type with regex constraints",
+			schema: map[string]any{
+				"type":      "string",
+				"minLength": 2.0,
+				"maxLength": 10.0,
+				"pattern":   "^[a-z]+$",
+			},
+			expected: &genai.Schema{
+				Type:      genai.TypeString,
+				MinLength: ptr.To(int64(2)),
+				MaxLength: ptr.To(int64(10)),
+				Pattern:   "^[a-z]+$",
+			},
+		},
+		{
+			name: "number type with constraints",
+			schema: map[string]any{
+				"type":    "number",
+				"minimum": 1.5,
+				"maximum": 10.5,
+			},
+			expected: &genai.Schema{
+				Type:    genai.TypeNumber,
+				Minimum: ptr.To(1.5),
+				Maximum: ptr.To(10.5),
+			},
+		},
+		{
+			name: "integer type with title and description",
+			schema: map[string]any{
+				"title":       "Age",
+				"description": "The age of the person",
+				"type":        "integer",
+			},
+			expected: &genai.Schema{
+				Title:       "Age",
+				Description: "The age of the person",
+				Type:        genai.TypeInteger,
+			},
+		},
+		{
+			name: "boolean type",
+			schema: map[string]any{
+				"type": "boolean",
+			},
+			expected: &genai.Schema{
+				Type: genai.TypeBoolean,
+			},
+		},
+		{
+			name: "array type with items and constraints",
+			schema: map[string]any{
+				"type":     "array",
+				"minItems": 1.0,
+				"maxItems": 5.0,
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
+			expected: &genai.Schema{
+				Type:     genai.TypeArray,
+				MinItems: ptr.To(int64(1)),
+				MaxItems: ptr.To(int64(5)),
+				Items:    &genai.Schema{Type: genai.TypeString},
+			},
+		},
+		{
+			name: "object type with properties and required",
+			schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"foo": map[string]any{"type": "string"},
+					"bar": map[string]any{"type": "integer"},
+				},
+				"required":      []any{"foo"},
+				"maxProperties": 2,
+				"minProperties": 1,
+			},
+			expected: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"foo": {Type: genai.TypeString},
+					"bar": {Type: genai.TypeInteger},
+				},
+				Required:      []string{"foo"},
+				MaxProperties: ptr.To(int64(2)),
+				MinProperties: ptr.To(int64(1)),
+			},
+		},
+		{
+			name: "enum type",
+			schema: map[string]any{
+				"type": "string",
+				"enum": []any{"a", "b", "c"},
+			},
+			expected: &genai.Schema{
+				Type: genai.TypeString,
+				Enum: []string{"a", "b", "c"},
+			},
+		},
+		{
+			name: "type array with single type",
+			schema: map[string]any{
+				"type":     []string{"string"},
+				"nullable": true,
+			},
+			expected: &genai.Schema{
+				Type:     genai.TypeString,
+				Nullable: ptr.To(true),
+			},
+		},
+		{
+			name: "nullable type",
+			schema: map[string]any{
+				"type":     []string{"string", "null"},
+				"nullable": true,
+			},
+			expected: &genai.Schema{
+				Type:     genai.TypeString,
+				Nullable: ptr.To(true),
+			},
+		},
+		{
+			name: "null type",
+			schema: map[string]any{
+				"type": "null",
+			},
+			expected: &genai.Schema{
+				Type: genai.TypeNULL,
+			},
+		},
+		{
+			name: "anyOf composition",
+			schema: map[string]any{
+				"anyOf": []any{
+					map[string]any{"type": "string"},
+					map[string]any{"type": "integer"},
+				},
+			},
+			expected: &genai.Schema{
+				Type: genai.TypeNULL,
+				AnyOf: []*genai.Schema{
+					{Type: genai.TypeString},
+					{Type: genai.TypeInteger},
+				},
+			},
+		},
+		{
+			name: "invalid type array",
+			schema: map[string]any{
+				"type": []string{"string", "integer"},
+			},
+			expectedErrMsg: "when two values are specified in the type field of JSON schema, one of them must be 'null' and the other must be a valid type",
+		},
+		{
+			name: "unsupported type",
+			schema: map[string]any{
+				"type": "objectz",
+			},
+			expectedErrMsg: "unsupported type in JSON schema: objectz",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := toGeminiSchema(tc.schema)
+			if tc.expectedErrMsg != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedErrMsg)
+			} else {
+				require.NoError(t, err)
+				if d := cmp.Diff(tc.expected, result, cmpopts.IgnoreUnexported(genai.Schema{})); d != "" {
+					t.Errorf("Schema mismatch (-want +got):\n%s", d)
+				}
+			}
+		})
+	}
+}
+
+func TestToGeminiTools(t *testing.T) {
+	tests := []struct {
+		name          string
+		openaiTools   []openai.Tool
+		expected      []genai.Tool
+		expectedError string
+	}{
+		{
+			name:        "empty tools",
+			openaiTools: nil,
+			expected:    nil,
+		},
+		{
+			name: "single function tool with parameters",
+			openaiTools: []openai.Tool{
+				{
+					Type: openai.ToolTypeFunction,
+					Function: &openai.FunctionDefinition{
+						Name:        "add",
+						Description: "Add two numbers",
+						Parameters: map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"a": map[string]any{"type": "integer"},
+								"b": map[string]any{"type": "integer"},
+							},
+							"required": []any{"a", "b"},
+						},
+					},
+				},
+			},
+			expected: []genai.Tool{
+				{
+					FunctionDeclarations: []*genai.FunctionDeclaration{
+						{
+							Name:        "add",
+							Description: "Add two numbers",
+							Parameters: &genai.Schema{
+								Type: genai.TypeObject,
+								Properties: map[string]*genai.Schema{
+									"a": {Type: genai.TypeInteger},
+									"b": {Type: genai.TypeInteger},
+								},
+								Required: []string{"a", "b"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "multiple function tools",
+			openaiTools: []openai.Tool{
+				{
+					Type: openai.ToolTypeFunction,
+					Function: &openai.FunctionDefinition{
+						Name:        "foo",
+						Description: "Foo function",
+					},
+				},
+				{
+					Type: openai.ToolTypeFunction,
+					Function: &openai.FunctionDefinition{
+						Name:        "bar",
+						Description: "Bar function",
+					},
+				},
+			},
+			expected: []genai.Tool{
+				{
+					FunctionDeclarations: []*genai.FunctionDeclaration{
+						{
+							Name:        "foo",
+							Description: "Foo function",
+							Parameters:  nil,
+						},
+						{
+							Name:        "bar",
+							Description: "Bar function",
+							Parameters:  nil,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "tool with invalid parameters schema",
+			openaiTools: []openai.Tool{
+				{
+					Type: openai.ToolTypeFunction,
+					Function: &openai.FunctionDefinition{
+						Name:        "bad",
+						Description: "Bad function",
+						Parameters:  "not-a-map",
+					},
+				},
+			},
+			expectedError: "tool's param should be a valid JSON string. invalid JSON schema string provided for tool 'bad'",
+		},
+		{
+			name: "non-function tool is ignored",
+			openaiTools: []openai.Tool{
+				{
+					Type: "retrieval",
+				},
+			},
+			expected: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := toGeminiTools(tc.openaiTools)
+			if tc.expectedError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedError)
+			} else {
+				require.NoError(t, err)
+				if d := cmp.Diff(tc.expected, result, cmpopts.IgnoreUnexported(genai.Schema{})); d != "" {
+					t.Errorf("Result mismatch (-want +got):\n%s", d)
+				}
+			}
+		})
+	}
+}
+
+func TestToGeminiToolConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     interface{}
+		expected  *genai.ToolConfig
+		expectErr string
+	}{
+		{
+			name:     "string auto",
+			input:    "auto",
+			expected: &genai.ToolConfig{FunctionCallingConfig: &genai.FunctionCallingConfig{Mode: genai.FunctionCallingConfigModeAuto}},
+		},
+		{
+			name:     "string none",
+			input:    "none",
+			expected: &genai.ToolConfig{FunctionCallingConfig: &genai.FunctionCallingConfig{Mode: genai.FunctionCallingConfigModeNone}},
+		},
+		{
+			name:     "string required",
+			input:    "required",
+			expected: &genai.ToolConfig{FunctionCallingConfig: &genai.FunctionCallingConfig{Mode: genai.FunctionCallingConfigModeAny}},
+		},
+		{
+			name: "ToolChoice struct",
+			input: openai.ToolChoice{
+				Type:     openai.ToolTypeFunction,
+				Function: openai.ToolFunction{Name: "myfunc"},
+			},
+			expected: &genai.ToolConfig{
+				FunctionCallingConfig: &genai.FunctionCallingConfig{
+					Mode:                 genai.FunctionCallingConfigModeAny,
+					AllowedFunctionNames: []string{"myfunc"},
+				},
+				RetrievalConfig: nil,
+			},
+		},
+		{
+			name:      "unsupported type",
+			input:     123,
+			expectErr: "unsupported tool choice type",
+		},
+		{
+			name:      "unsupported string value",
+			input:     "invalid",
+			expectErr: "unsupported tool choice value",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := toGeminiToolConfig(tc.input)
+			if tc.expectErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.expectErr) {
+					t.Errorf("expected error %q, got %v", tc.expectErr, err)
 				}
 				return
 			}
 			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-				return
+				t.Fatalf("unexpected error: %v", err)
 			}
-			if diff := cmp.Diff(tc.expects, got, cmpopts.IgnoreUnexported(genai.GenerationConfig{})); diff != "" {
-				t.Errorf("GenerationConfig mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tc.expected, got, cmpopts.IgnoreUnexported(genai.ToolConfig{}, genai.FunctionCallingConfig{})); diff != "" {
+				t.Errorf("ToolConfig mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

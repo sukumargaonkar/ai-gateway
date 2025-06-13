@@ -11,9 +11,12 @@ import (
 	"mime"
 	"net/url"
 	"path"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/spf13/cast"
 	"google.golang.org/genai"
+	"k8s.io/utils/ptr"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
@@ -248,6 +251,288 @@ func fromAssistantMsg(msg openai.ChatCompletionAssistantMessageParam) ([]*genai.
 	return parts, knownToolCalls, nil
 }
 
+// toGeminiTools converts OpenAI tools to Gemini tools
+// This function combines all the openai tools into a single Gemini Tool as distinct function declarations.
+// This is mainly done because some Gemini models do not support multiple tools in a single request.
+// This behavior might need to change in future base don model capabilities.
+func toGeminiTools(openaiTools []openai.Tool) ([]genai.Tool, error) {
+	if len(openaiTools) == 0 {
+		return nil, nil
+	}
+	var functionDecls []*genai.FunctionDeclaration
+	for _, tool := range openaiTools {
+		if tool.Type == openai.ToolTypeFunction {
+			if tool.Function != nil {
+				var params map[string]any
+				var schema *genai.Schema
+				var err error
+
+				if tool.Function.Parameters != nil {
+					switch paramsRaw := tool.Function.Parameters.(type) {
+					case string:
+						if err = json.Unmarshal([]byte(paramsRaw), &params); err != nil {
+							return nil, fmt.Errorf("tool's param should be a valid JSON string. invalid JSON schema string provided for tool '%s': %w", tool.Function.Name, err)
+						}
+					case map[string]any:
+						params = paramsRaw
+					}
+
+					schema, err = toGeminiSchema(params)
+					if err != nil {
+						return nil, fmt.Errorf("invalid JSON schema provided for tool '%s': %w", tool.Function.Name, err)
+					}
+				}
+				functionDecl := &genai.FunctionDeclaration{
+					Name:        tool.Function.Name,
+					Description: tool.Function.Description,
+					Parameters:  schema,
+				}
+				functionDecls = append(functionDecls, functionDecl)
+			}
+		}
+	}
+	if len(functionDecls) == 0 {
+		return nil, nil
+	}
+	return []genai.Tool{{FunctionDeclarations: functionDecls}}, nil
+}
+
+// toGeminiSchema converts OpenAI JSON schema to Gemini Schema.
+// Gemini Schema is a strict subset of JSON Schema specification. This function ensures only valid fields are retained.
+// JSON Schema fields like $ref which can be transformed to Gemini Schema are automatically transformed. Other fields will be dropped.
+//
+// Gemini Schema: https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.cachedContents#Schema
+func toGeminiSchema(jsonSchema map[string]any) (*genai.Schema, error) {
+	// First, dereference any $ref in the schema
+	derefSchema, err := dereferenceJSONSchema(jsonSchema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dereference JSON schema: %w", err)
+	}
+
+	schema := genai.Schema{}
+
+	// Handle description
+	if description, ok := derefSchema["description"].(string); ok {
+		schema.Description = description
+	}
+
+	// Handle title
+	if title, ok := derefSchema["title"].(string); ok {
+		schema.Title = title
+	}
+
+	// Handle enum
+	if enumValues, ok := derefSchema["enum"].([]interface{}); ok {
+		for _, val := range enumValues {
+			if strVal, ok := val.(string); ok {
+				schema.Enum = append(schema.Enum, strVal)
+			} else {
+				// Convert non-string enum values to strings
+				schema.Enum = append(schema.Enum, fmt.Sprintf("%v", val))
+			}
+		}
+	}
+
+	// Extract type field
+	var typeStr string
+	if typeVal, ok := derefSchema["type"]; ok {
+		switch tv := typeVal.(type) {
+		case string:
+			typeStr = tv
+		case []string:
+			switch len(tv) {
+			case 0:
+				return nil, fmt.Errorf("type field in JSON schema cannot be an empty array")
+			case 1:
+				typeStr = tv[0]
+			case 2:
+				// Ensure that when two types are specified, one must be "null" and the other a valid type
+				if (tv[0] != "null" && tv[1] != "null") || (tv[0] == "null" && tv[1] == "null") {
+					return nil, fmt.Errorf(
+						"when two values are specified in the type field of JSON schema, one of them must be 'null' and the other must be a valid type. found types: %v", tv,
+					)
+				}
+
+				// Set typeStr to the non-null type and mark as nullable
+				if tv[0] == "null" {
+					typeStr = tv[1]
+				} else {
+					typeStr = tv[0]
+				}
+				schema.Nullable = ptr.To(true)
+			default:
+				return nil, fmt.Errorf("multiple types in JSON schema are not supported by Gemini. found types: %v", tv)
+			}
+		}
+	}
+
+	// Parse constraints based on the type
+	switch typeStr {
+	case "string":
+		schema.Type = genai.TypeString
+
+		// Parse string constraints
+		if minLength, ok := derefSchema["minLength"].(float64); ok {
+			minLengthInt := int64(minLength)
+			schema.MinLength = &minLengthInt
+		}
+		if maxLength, ok := derefSchema["maxLength"].(float64); ok {
+			maxLengthInt := int64(maxLength)
+			schema.MaxLength = &maxLengthInt
+		}
+		if pattern, ok := derefSchema["pattern"].(string); ok {
+			schema.Pattern = pattern
+		}
+	case "number":
+		schema.Type = genai.TypeNumber
+
+		// Handle numeric constraints
+		if minimum, ok := derefSchema["minimum"].(float64); ok {
+			schema.Minimum = &minimum
+		}
+		if maximum, ok := derefSchema["maximum"].(float64); ok {
+			schema.Maximum = &maximum
+		}
+	case "integer":
+		schema.Type = genai.TypeInteger
+	case "boolean":
+		schema.Type = genai.TypeBoolean
+	case "array":
+		schema.Type = genai.TypeArray
+
+		// Parse array items
+		if items, ok := derefSchema["items"].(map[string]interface{}); ok {
+			var itemsSchema *genai.Schema
+			itemsSchema, err = toGeminiSchema(items)
+			if err != nil {
+				return nil, fmt.Errorf("error processing array items: %w", err)
+			}
+			schema.Items = itemsSchema
+		}
+
+		// Handle array constraints
+		if minItems, ok := derefSchema["minItems"].(float64); ok {
+			minItemsInt := int64(minItems)
+			schema.MinItems = &minItemsInt
+		}
+		if maxItems, ok := derefSchema["maxItems"].(float64); ok {
+			maxItemsInt := int64(maxItems)
+			schema.MaxItems = &maxItemsInt
+		}
+	case "object":
+		schema.Type = genai.TypeObject
+
+		schema.Properties = make(map[string]*genai.Schema)
+
+		// Process properties
+		if properties, ok := derefSchema["properties"].(map[string]interface{}); ok {
+			for name, propSchemaRaw := range properties {
+				var propSchemaMap map[string]interface{}
+				if propSchemaMap, ok = propSchemaRaw.(map[string]interface{}); ok {
+					var propSchema *genai.Schema
+					propSchema, err = toGeminiSchema(propSchemaMap)
+					if err != nil {
+						return nil, fmt.Errorf("error processing property %s: %w", name, err)
+					}
+					schema.Properties[name] = propSchema
+				}
+			}
+		}
+
+		// Process required properties
+		if required, ok := derefSchema["required"].([]interface{}); ok {
+			for _, req := range required {
+				if reqStr, ok := req.(string); ok {
+					schema.Required = append(schema.Required, reqStr)
+				}
+			}
+		}
+
+		if derefSchema["maxProperties"] != nil {
+			var maxPropsInt int64
+			if maxPropsInt, err = cast.ToInt64E(derefSchema["maxProperties"]); err != nil {
+				return nil, fmt.Errorf("invalid maxProperties value: %v", derefSchema["maxProperties"])
+			}
+			schema.MaxProperties = &maxPropsInt
+
+		}
+
+		if derefSchema["minProperties"] != nil {
+			var minPropsInt int64
+			if minPropsInt, err = cast.ToInt64E(derefSchema["minProperties"]); err != nil {
+				return nil, fmt.Errorf("invalid minProperties value: %v", derefSchema["maxProperties"])
+			}
+			schema.MinProperties = &minPropsInt
+		}
+
+	case "null", "":
+		schema.Type = genai.TypeNULL
+
+	default:
+		return nil, fmt.Errorf("unsupported type in JSON schema: %s", typeStr)
+	}
+
+	// Handle format
+	if format, ok := derefSchema["format"].(string); ok {
+		schema.Format = format
+	}
+
+	// Handle nullable
+	if nullable, ok := derefSchema["nullable"].(bool); ok {
+		schema.Nullable = &nullable
+	}
+
+	// Handle default
+	if defaultVal, ok := derefSchema["default"]; ok {
+		schema.Default = defaultVal
+	}
+
+	// Handle anyOf
+	if anyOf, ok := derefSchema["anyOf"].([]interface{}); ok {
+		for _, subSchema := range anyOf {
+			if subSchemaMap, ok := subSchema.(map[string]interface{}); ok {
+				subGeminiSchema, err := toGeminiSchema(subSchemaMap)
+				if err != nil {
+					return nil, fmt.Errorf("error processing anyOf schema: %w", err)
+				}
+				schema.AnyOf = append(schema.AnyOf, subGeminiSchema)
+			}
+		}
+	}
+
+	return &schema, nil
+}
+
+// toGeminiToolConfig converts OpenAI tool_choice to Gemini ToolConfig
+func toGeminiToolConfig(toolChoice interface{}) (*genai.ToolConfig, error) {
+	if toolChoice == nil {
+		return nil, nil
+	}
+	switch tc := toolChoice.(type) {
+	case string:
+		switch tc {
+		case "auto":
+			return &genai.ToolConfig{FunctionCallingConfig: &genai.FunctionCallingConfig{Mode: genai.FunctionCallingConfigModeAuto}}, nil
+		case "none":
+			return &genai.ToolConfig{FunctionCallingConfig: &genai.FunctionCallingConfig{Mode: genai.FunctionCallingConfigModeNone}}, nil
+		case "required":
+			return &genai.ToolConfig{FunctionCallingConfig: &genai.FunctionCallingConfig{Mode: genai.FunctionCallingConfigModeAny}}, nil
+		}
+	case openai.ToolChoice:
+		return &genai.ToolConfig{
+			FunctionCallingConfig: &genai.FunctionCallingConfig{
+				Mode:                 genai.FunctionCallingConfigModeAny,
+				AllowedFunctionNames: []string{tc.Function.Name},
+			},
+			RetrievalConfig: nil,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported tool choice type: %T", toolChoice)
+	}
+
+	return nil, fmt.Errorf("unsupported tool choice value: %v", toolChoice)
+}
+
 // toGeminiGenerationConfig converts OpenAI request to Gemini GenerationConfig
 func toGeminiGenerationConfig(openAIReq *openai.ChatCompletionRequest) (*genai.GenerationConfig, error) {
 	if openAIReq == nil {
@@ -275,6 +560,35 @@ func toGeminiGenerationConfig(openAIReq *openai.ChatCompletionRequest) (*genai.G
 
 	if openAIReq.LogProbs != nil {
 		gc.ResponseLogprobs = *openAIReq.LogProbs
+	}
+
+	if openAIReq.ResponseFormat != nil {
+		switch openAIReq.ResponseFormat.Type {
+		case openai.ChatCompletionResponseFormatTypeText:
+			gc.ResponseMIMEType = "text/plain"
+		case openai.ChatCompletionResponseFormatTypeJSONObject:
+			gc.ResponseMIMEType = "application/json"
+		case openai.ChatCompletionResponseFormatTypeJSONSchema:
+			var schemaMap map[string]interface{}
+
+			switch sch := openAIReq.ResponseFormat.JSONSchema.Schema.(type) {
+			case string:
+				if err := json.Unmarshal([]byte(sch), &schemaMap); err != nil {
+					return nil, fmt.Errorf("invalid JSON schema string: %w", err)
+				}
+			case map[string]interface{}:
+				schemaMap = sch
+			}
+
+			// Convert JSON schema to Gemini Schema
+			schema, err := toGeminiSchema(schemaMap)
+			if err != nil {
+				return nil, fmt.Errorf("error converting JSON schema: %w", err)
+			}
+
+			gc.ResponseMIMEType = "application/json"
+			gc.ResponseSchema = schema
+		}
 	}
 
 	if openAIReq.N != nil {
@@ -468,4 +782,154 @@ func toLogprobs(logprobsResult genai.LogprobsResult) openai.ChatCompletionChoice
 	return openai.ChatCompletionChoicesLogprobs{
 		Content: content,
 	}
+}
+
+// -------------------------------------------------------------
+// JSON Schema Dereferencing Helper
+// -------------------------------------------------------------
+
+func dereferenceJSONSchema(jsonSchema map[string]any) (map[string]any, error) {
+	// Make a deep copy of the schema to avoid modifying the original
+	result := deepCopyMap(jsonSchema)
+
+	// Process the schema and its nested properties with a max depth of 10
+	return dereferenceJSONSchemaInternal(result, result, 0)
+}
+
+// deepCopyMap creates a deep copy of a map[string]any
+func deepCopyMap(m map[string]any) map[string]any {
+	result := make(map[string]any)
+	for k, v := range m {
+		switch val := v.(type) {
+		case map[string]any:
+			result[k] = deepCopyMap(val)
+		case []any:
+			result[k] = deepCopySlice(val)
+		default:
+			result[k] = val
+		}
+	}
+	return result
+}
+
+// deepCopySlice creates a deep copy of a []any
+func deepCopySlice(s []any) []any {
+	result := make([]any, len(s))
+	for i, v := range s {
+		switch val := v.(type) {
+		case map[string]any:
+			result[i] = deepCopyMap(val)
+		case []any:
+			result[i] = deepCopySlice(val)
+		default:
+			result[i] = val
+		}
+	}
+	return result
+}
+
+const MaxJSONSchemaDereferenceDepth = 10
+
+// dereferenceJSONSchemaInternal is the recursive implementation of dereferenceJSONSchema
+// It takes three parameters:
+// - currentObj: the current object being processed
+// - rootObj: the root JSON schema object, used to resolve references
+// - depth: current recursion depth, used to prevent infinite recursion with circular references
+func dereferenceJSONSchemaInternal(currentObj map[string]any, rootObj map[string]any, depth int) (map[string]any, error) {
+	// Prevent infinite recursion by limiting max depth to 10
+	if depth > MaxJSONSchemaDereferenceDepth {
+		return currentObj, fmt.Errorf("maximum recursion depth exceeded while dereferencing JSON schema, possible circular reference detected")
+	}
+	// Check if the schema has a $ref field
+	if ref, ok := currentObj["$ref"].(string); ok {
+		// If it does, we need to dereference it
+		if ref == "" {
+			return nil, fmt.Errorf("empty $ref in JSON schema")
+		}
+
+		// Check if the reference is internal (#/...) or external (http://, file://)
+		if strings.HasPrefix(ref, "#/") {
+			// Handle internal references in JSON Schema
+			// Internal references are specified with JSON Pointer notation
+			// e.g., #/definitions/Person points to the "Person" definition within the same document
+
+			// Remove the "#/" prefix and split by "/"
+			refPath := strings.TrimPrefix(ref, "#/")
+			segments := strings.Split(refPath, "/")
+
+			// Extract the referenced data by traversing the JSON structure
+			var current any = rootObj
+			for _, segment := range segments {
+				// JSON pointers might use ~ escaping, so we need to handle that
+				segment = strings.ReplaceAll(segment, "~1", "/")
+				segment = strings.ReplaceAll(segment, "~0", "~")
+
+				// Try to traverse to the next level
+				if m, ok := current.(map[string]any); ok {
+					if val, exists := m[segment]; exists {
+						current = val
+					} else {
+						return nil, fmt.Errorf("failed to resolve JSON schema reference: %s - segment %s not found", ref, segment)
+					}
+				} else {
+					return nil, fmt.Errorf("failed to resolve JSON schema reference: %s - not an object at segment %s", ref, segment)
+				}
+			}
+
+			// Current now points to the referenced data
+			if refSchema, ok := current.(map[string]any); ok {
+				// Make a deep copy of the referenced schema
+				refSchemaCopy := deepCopyMap(refSchema)
+
+				// Recursively dereference the referenced schema
+				resolvedRefSchema, err := dereferenceJSONSchemaInternal(refSchemaCopy, rootObj, depth+1)
+				if err != nil {
+					return nil, err
+				}
+
+				// Remove the $ref field
+				delete(currentObj, "$ref")
+
+				// Copy all properties from the referenced schema to the current object
+				for k, v := range resolvedRefSchema {
+					currentObj[k] = v
+				}
+			} else {
+				return nil, fmt.Errorf("referenced schema is not an object: %s", ref)
+			}
+		} else {
+			// Handle external references (not implemented in this simplified version)
+			return nil, fmt.Errorf("external schema references are not supported: %s", ref)
+		}
+	}
+
+	// Process nested properties and objects
+	for k, v := range currentObj {
+		switch val := v.(type) {
+		case map[string]any:
+			// Recursively dereference nested objects
+			derefValue, err := dereferenceJSONSchemaInternal(val, rootObj, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			currentObj[k] = derefValue
+		case []any:
+			// Process arrays of objects
+			newArray := make([]any, len(val))
+			for i, item := range val {
+				if itemObj, ok := item.(map[string]any); ok {
+					derefItem, err := dereferenceJSONSchemaInternal(itemObj, rootObj, depth+1)
+					if err != nil {
+						return nil, err
+					}
+					newArray[i] = derefItem
+				} else {
+					newArray[i] = item
+				}
+			}
+			currentObj[k] = newArray
+		}
+	}
+
+	return currentObj, nil
 }
