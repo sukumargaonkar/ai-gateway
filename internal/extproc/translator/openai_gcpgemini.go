@@ -165,6 +165,18 @@ func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) openAIMessageToGeminiMessa
 		return GenerateContentRequest{}, err
 	}
 
+	// Convert OpenAI tools to Gemini tools
+	tools, err := toGeminiTools(openAIReq.Tools)
+	if err != nil {
+		return GenerateContentRequest{}, fmt.Errorf("error converting tools: %w", err)
+	}
+
+	// Convert tool config
+	toolConfig, err := toGeminiToolConfig(openAIReq.ToolChoice)
+	if err != nil {
+		return GenerateContentRequest{}, fmt.Errorf("error converting tool choice: %w", err)
+	}
+
 	// Convert generation config
 	generationConfig, err := toGeminiGenerationConfig(openAIReq)
 	if err != nil {
@@ -173,8 +185,8 @@ func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) openAIMessageToGeminiMessa
 
 	gcr := GenerateContentRequest{
 		Contents:          contents,
-		Tools:             nil,
-		ToolConfig:        nil,
+		Tools:             tools,
+		ToolConfig:        toolConfig,
 		GenerationConfig:  generationConfig,
 		SystemInstruction: systemInstruction,
 	}
