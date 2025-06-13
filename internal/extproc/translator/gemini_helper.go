@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"path"
 
+	"github.com/google/uuid"
 	"google.golang.org/genai"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
@@ -44,7 +45,8 @@ func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]gena
 			}
 		case openai.ChatMessageRoleSystem:
 			msg := msgUnion.Value.(openai.ChatCompletionSystemMessageParam)
-			inst, err := fromSystemMsg(msg)
+			devMsg := systemMsgToDeveloperMsg(msg)
+			inst, err := fromDeveloperMsg(devMsg)
 			if err != nil {
 				return nil, nil, fmt.Errorf("error converting developer message: %w", err)
 			}
@@ -95,6 +97,17 @@ func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]gena
 	return gcpContents, systemInstruction, nil
 }
 
+// systemMsgToDeveloperMsg converts OpenAI system message to developer message.
+// Since systemMsg is deprecated, this function is provided to maintain backward compatibility
+func systemMsgToDeveloperMsg(msg openai.ChatCompletionSystemMessageParam) openai.ChatCompletionDeveloperMessageParam {
+	// Convert OpenAI system message to developer message
+	return openai.ChatCompletionDeveloperMessageParam{
+		Name:    msg.Name,
+		Role:    openai.ChatMessageRoleDeveloper,
+		Content: msg.Content,
+	}
+}
+
 // fromDeveloperMsg converts OpenAI developer message to Gemini Content.
 func fromDeveloperMsg(msg openai.ChatCompletionDeveloperMessageParam) ([]*genai.Part, error) {
 	var parts []*genai.Part
@@ -114,30 +127,6 @@ func fromDeveloperMsg(msg openai.ChatCompletionDeveloperMessageParam) ([]*genai.
 		}
 	default:
 		return nil, fmt.Errorf("unsupported content type in developer message: %T", contentValue)
-
-	}
-	return parts, nil
-}
-
-// fromSystemMsg converts OpenAI system message to Gemini Content.
-func fromSystemMsg(msg openai.ChatCompletionSystemMessageParam) ([]*genai.Part, error) {
-	var parts []*genai.Part
-
-	switch contentValue := msg.Content.Value.(type) {
-	case string:
-		if contentValue != "" {
-			parts = append(parts, genai.NewPartFromText(contentValue))
-		}
-	case []openai.ChatCompletionContentPartTextParam:
-		if len(contentValue) > 0 {
-			for _, textParam := range contentValue {
-				if textParam.Text != "" {
-					parts = append(parts, genai.NewPartFromText(textParam.Text))
-				}
-			}
-		}
-	default:
-		return nil, fmt.Errorf("unsupported content type in system message: %T", contentValue)
 
 	}
 	return parts, nil
@@ -257,4 +246,226 @@ func fromAssistantMsg(msg openai.ChatCompletionAssistantMessageParam) ([]*genai.
 	}
 
 	return parts, knownToolCalls, nil
+}
+
+// toGeminiGenerationConfig converts OpenAI request to Gemini GenerationConfig
+func toGeminiGenerationConfig(openAIReq *openai.ChatCompletionRequest) (*genai.GenerationConfig, error) {
+	if openAIReq == nil {
+		return nil, fmt.Errorf("input request is nil")
+	}
+	gc := &genai.GenerationConfig{}
+	if openAIReq.Temperature != nil {
+		f := float32(*openAIReq.Temperature)
+		gc.Temperature = &f
+	}
+	if openAIReq.TopP != nil {
+		f := float32(*openAIReq.TopP)
+		gc.TopP = &f
+	}
+
+	if openAIReq.Seed != nil {
+		seed := int32(*openAIReq.Seed) // nolint:gosec
+		gc.Seed = &seed
+	}
+
+	if openAIReq.TopLogProbs != nil {
+		logProbs := int32(*openAIReq.TopLogProbs) // nolint:gosec
+		gc.Logprobs = &logProbs
+	}
+
+	if openAIReq.LogProbs != nil {
+		gc.ResponseLogprobs = *openAIReq.LogProbs
+	}
+
+	if openAIReq.N != nil {
+		gc.CandidateCount = int32(*openAIReq.N) // nolint:gosec
+	}
+	if openAIReq.MaxTokens != nil {
+		gc.MaxOutputTokens = int32(*openAIReq.MaxTokens) // nolint:gosec
+	}
+	if openAIReq.PresencePenalty != nil {
+		gc.PresencePenalty = openAIReq.PresencePenalty
+	}
+	if openAIReq.FrequencyPenalty != nil {
+		gc.FrequencyPenalty = openAIReq.FrequencyPenalty
+	}
+	if len(openAIReq.Stop) > 0 {
+		var stops []string
+		for _, s := range openAIReq.Stop {
+			if s != nil {
+				stops = append(stops, *s)
+			}
+		}
+		gc.StopSequences = stops
+	}
+	return gc, nil
+}
+
+// --------------------------------------------------------------
+// Response Conversion Helper for GCP Gemini to OpenAI Translator
+// --------------------------------------------------------------
+
+// toOpenAIChoices converts Gemini candidates to OpenAI choices
+func toOpenAIChoices(candidates []*genai.Candidate) ([]openai.ChatCompletionResponseChoice, error) {
+	choices := make([]openai.ChatCompletionResponseChoice, 0, len(candidates))
+
+	for idx, candidate := range candidates {
+		if candidate == nil {
+			continue
+		}
+
+		// Create the choice
+		choice := openai.ChatCompletionResponseChoice{
+			Index:        int64(idx),
+			FinishReason: toOpenAIFinishReason(candidate.FinishReason),
+		}
+
+		if candidate.Content != nil {
+			message := openai.ChatCompletionResponseChoiceMessage{
+				Role: openai.ChatMessageRoleAssistant,
+			}
+			// Extract text from parts
+			content := extractTextParts(candidate.Content.Parts)
+			message.Content = &content
+
+			// Extract tool calls if any
+			toolCalls, err := extractToolCalls(candidate.Content.Parts)
+			if err != nil {
+				return nil, fmt.Errorf("error extracting tool calls: %w", err)
+			}
+			message.ToolCalls = toolCalls
+
+			// If there's no content but there are tool calls, set content to nil
+			if content == "" && len(toolCalls) > 0 {
+				message.Content = nil
+			}
+
+			choice.Message = message
+		}
+
+		// Handle logprobs if available
+		if candidate.LogprobsResult != nil {
+			choice.Logprobs = toLogprobs(*candidate.LogprobsResult)
+		}
+
+		choices = append(choices, choice)
+	}
+
+	return choices, nil
+}
+
+// toOpenAIFinishReason converts Gemini finish reason to OpenAI finish reason
+func toOpenAIFinishReason(reason genai.FinishReason) openai.ChatCompletionChoicesFinishReason {
+	switch reason {
+	case genai.FinishReasonStop:
+		return openai.ChatCompletionChoicesFinishReasonStop
+	case genai.FinishReasonMaxTokens:
+		return openai.ChatCompletionChoicesFinishReasonLength
+	default:
+		return openai.ChatCompletionChoicesFinishReasonContentFilter
+	}
+}
+
+// extractTextParts extracts text from Gemini parts
+func extractTextParts(parts []*genai.Part) string {
+	var text string
+	for _, part := range parts {
+		if part != nil && part.Text != "" {
+			text += part.Text
+		}
+	}
+	return text
+}
+
+// extractToolCalls extracts tool calls from Gemini parts
+func extractToolCalls(parts []*genai.Part) ([]openai.ChatCompletionMessageToolCallParam, error) {
+	var toolCalls []openai.ChatCompletionMessageToolCallParam
+
+	for _, part := range parts {
+		if part == nil || part.FunctionCall == nil {
+			continue
+		}
+
+		// Convert function call arguments to JSON string
+		args, err := json.Marshal(part.FunctionCall.Args)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal function arguments: %w", err)
+		}
+
+		// Generate a random ID for the tool call
+		toolCallID := uuid.New().String()
+
+		toolCall := openai.ChatCompletionMessageToolCallParam{
+			ID:   toolCallID,
+			Type: "function",
+			Function: openai.ChatCompletionMessageToolCallFunctionParam{
+				Name:      part.FunctionCall.Name,
+				Arguments: string(args),
+			},
+		}
+
+		toolCalls = append(toolCalls, toolCall)
+	}
+
+	if len(toolCalls) == 0 {
+		return nil, nil
+	}
+
+	return toolCalls, nil
+}
+
+// toOpenAIUsage converts Gemini usage metadata to OpenAI usage
+func toOpenAIUsage(metadata *genai.GenerateContentResponseUsageMetadata) openai.ChatCompletionResponseUsage {
+	if metadata == nil {
+		return openai.ChatCompletionResponseUsage{}
+	}
+
+	return openai.ChatCompletionResponseUsage{
+		CompletionTokens: int(metadata.CandidatesTokenCount),
+		PromptTokens:     int(metadata.PromptTokenCount),
+		TotalTokens:      int(metadata.TotalTokenCount),
+	}
+}
+
+// toLogprobs converts Gemini logprobs to OpenAI logprobs
+func toLogprobs(logprobsResult genai.LogprobsResult) openai.ChatCompletionChoicesLogprobs {
+	if len(logprobsResult.ChosenCandidates) == 0 {
+		return openai.ChatCompletionChoicesLogprobs{}
+	}
+
+	content := make([]openai.ChatCompletionTokenLogprob, 0, len(logprobsResult.ChosenCandidates))
+
+	for i := 0; i < len(logprobsResult.ChosenCandidates); i++ {
+		chosen := logprobsResult.ChosenCandidates[i]
+
+		var topLogprobs []openai.ChatCompletionTokenLogprobTopLogprob
+
+		// Process top candidates if available
+		if i < len(logprobsResult.TopCandidates) && logprobsResult.TopCandidates[i] != nil {
+			topCandidates := logprobsResult.TopCandidates[i].Candidates
+			if len(topCandidates) > 0 {
+				topLogprobs = make([]openai.ChatCompletionTokenLogprobTopLogprob, 0, len(topCandidates))
+				for _, tc := range topCandidates {
+					topLogprobs = append(topLogprobs, openai.ChatCompletionTokenLogprobTopLogprob{
+						Token:   tc.Token,
+						Logprob: float64(tc.LogProbability),
+					})
+				}
+			}
+		}
+
+		// Create token logprob
+		tokenLogprob := openai.ChatCompletionTokenLogprob{
+			Token:       chosen.Token,
+			Logprob:     float64(chosen.LogProbability),
+			TopLogprobs: topLogprobs,
+		}
+
+		content = append(content, tokenLogprob)
+	}
+
+	// Return the logprobs
+	return openai.ChatCompletionChoicesLogprobs{
+		Content: content,
+	}
 }

@@ -110,8 +110,14 @@ func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) ResponseBody(_ map[string]
 		return nil, nil, LLMTokenUsage{}, fmt.Errorf("error unmarshaling GCP response: %w", err)
 	}
 
+	// Convert to OpenAI format
+	openAIResp, err := o.geminiResponseToOpenAIMessage(gcpResp)
+	if err != nil {
+		return nil, nil, LLMTokenUsage{}, fmt.Errorf("error converting GCP response to OpenAI format: %w", err)
+	}
+
 	// Marshal the OpenAI response
-	openAIRespBytes, err := json.Marshal(gcpResp)
+	openAIRespBytes, err := json.Marshal(openAIResp)
 	if err != nil {
 		return nil, nil, LLMTokenUsage{}, fmt.Errorf("error marshaling OpenAI response: %w", err)
 	}
@@ -159,13 +165,36 @@ func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) openAIMessageToGeminiMessa
 		return GenerateContentRequest{}, err
 	}
 
+	// Convert generation config
+	generationConfig, err := toGeminiGenerationConfig(openAIReq)
+	if err != nil {
+		return GenerateContentRequest{}, fmt.Errorf("error converting generation config: %w", err)
+	}
+
 	gcr := GenerateContentRequest{
 		Contents:          contents,
 		Tools:             nil,
 		ToolConfig:        nil,
-		GenerationConfig:  nil,
+		GenerationConfig:  generationConfig,
 		SystemInstruction: systemInstruction,
 	}
 
 	return gcr, nil
+}
+
+func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) geminiResponseToOpenAIMessage(gcr genai.GenerateContentResponse) (openai.ChatCompletionResponse, error) {
+	// Convert candidates to OpenAI choices
+	choices, err := toOpenAIChoices(gcr.Candidates)
+	if err != nil {
+		return openai.ChatCompletionResponse{}, fmt.Errorf("error converting choices: %w", err)
+	}
+
+	// Set up the OpenAI response
+	openaiResp := openai.ChatCompletionResponse{
+		Choices: choices,
+		Object:  "chat.completion",
+		Usage:   toOpenAIUsage(gcr.UsageMetadata),
+	}
+
+	return openaiResp, nil
 }

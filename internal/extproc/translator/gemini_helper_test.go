@@ -343,73 +343,6 @@ func TestFromAssistantMsg(t *testing.T) {
 	}
 }
 
-func TestFromSystemMsg(t *testing.T) {
-	tests := []struct {
-		name             string
-		msg              openai.ChatCompletionSystemMessageParam
-		expectedParts    []*genai.Part
-		expectedErrorMsg string
-	}{
-		{
-			name: "string content",
-			msg: openai.ChatCompletionSystemMessageParam{
-				Content: openai.StringOrArray{
-					Value: "This is a system message",
-				},
-				Role: openai.ChatMessageRoleSystem,
-			},
-			expectedParts: []*genai.Part{
-				{Text: "This is a system message"},
-			},
-		},
-		{
-			name: "content as string array",
-			msg: openai.ChatCompletionSystemMessageParam{
-				Content: openai.StringOrArray{
-					Value: []openai.ChatCompletionContentPartTextParam{
-						{Text: "This is a system message"},
-						{Text: "It can be multiline"},
-					},
-				},
-				Role: openai.ChatMessageRoleSystem,
-			},
-			expectedParts: []*genai.Part{
-				{Text: "This is a system message"},
-				{Text: "It can be multiline"},
-			},
-		},
-		{
-			name: "invalid content type",
-			msg: openai.ChatCompletionSystemMessageParam{
-				Content: openai.StringOrArray{
-					Value: 10, // Invalid type
-				},
-				Role: openai.ChatMessageRoleSystem,
-			},
-			expectedParts: []*genai.Part{
-				{Text: "This is a system message"},
-			},
-			expectedErrorMsg: "unsupported content type in system message: int",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			content, err := fromSystemMsg(tc.msg)
-
-			if tc.expectedErrorMsg != "" || err != nil {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.expectedErrorMsg)
-			} else {
-				require.NoError(t, err)
-				if d := cmp.Diff(tc.expectedParts, content); d != "" {
-					t.Errorf("Content mismatch (-want +got):\n%s", d)
-				}
-			}
-		})
-	}
-}
-
 func TestFromDeveloperMsg(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -785,6 +718,75 @@ func TestFromUserMsg(t *testing.T) {
 				if d := cmp.Diff(tc.expectedParts, parts, cmpopts.IgnoreFields(genai.Blob{}, "Data")); d != "" {
 					t.Errorf("Parts mismatch (-want +got):\n%s", d)
 				}
+			}
+		})
+	}
+}
+
+func TestToGeminiGenerationConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   *openai.ChatCompletionRequest
+		expects *genai.GenerationConfig
+		wantErr bool
+	}{
+		{
+			name: "all fields set",
+			input: &openai.ChatCompletionRequest{
+				Temperature:      ptr.To(0.7),
+				TopP:             ptr.To(0.9),
+				Seed:             ptr.To(42),
+				TopLogProbs:      ptr.To(3),
+				LogProbs:         ptr.To(true),
+				N:                ptr.To(2),
+				MaxTokens:        ptr.To(int64(256)),
+				PresencePenalty:  ptr.To(float32(1.1)),
+				FrequencyPenalty: ptr.To(float32(0.5)),
+				Stop:             []*string{ptr.To("stop1"), ptr.To("stop2")},
+			},
+			expects: &genai.GenerationConfig{
+				Temperature:      ptr.To(float32(0.7)),
+				TopP:             ptr.To(float32(0.9)),
+				Seed:             ptr.To(int32(42)),
+				Logprobs:         ptr.To(int32(3)),
+				ResponseLogprobs: true,
+				CandidateCount:   2,
+				MaxOutputTokens:  256,
+				PresencePenalty:  ptr.To(float32(1.1)),
+				FrequencyPenalty: ptr.To(float32(0.5)),
+				StopSequences:    []string{"stop1", "stop2"},
+			},
+			wantErr: false,
+		},
+		{
+			name:    "minimal fields",
+			input:   &openai.ChatCompletionRequest{},
+			expects: &genai.GenerationConfig{},
+			wantErr: false,
+		},
+		{
+			name:    "nil input",
+			input:   nil,
+			expects: nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := toGeminiGenerationConfig(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error but got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if diff := cmp.Diff(tc.expects, got, cmpopts.IgnoreUnexported(genai.GenerationConfig{})); diff != "" {
+				t.Errorf("GenerationConfig mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
