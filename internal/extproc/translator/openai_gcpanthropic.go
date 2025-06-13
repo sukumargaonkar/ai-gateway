@@ -82,6 +82,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers
 	headerMutation *extprocv3.HeaderMutation, err error,
 ) {
 	// TODO: Implement if needed.
+	_ = headers
 	return nil, nil
 }
 
@@ -90,6 +91,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseError(respHeade
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
 	// TODO: Implement error translation.
+	_, _ = respHeaders, body
 	return nil, nil, nil
 }
 
@@ -97,5 +99,6 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeader
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, tokenUsage LLMTokenUsage, err error,
 ) {
 	// TODO implement me
+	_, _, _ = respHeaders, body, endOfStream
 	return nil, nil, LLMTokenUsage{}, nil
 }

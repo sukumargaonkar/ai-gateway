@@ -338,7 +338,8 @@ func (s *Server) setBackend(ctx context.Context, p Processor, reqID string, req 
 	//	return nil, status.Error(codes.Internal, "missing backend_name in endpoint metadata")
 	//}
 
-	backendNameHardCoded := "gcp-anthropic-backend"
+	_ = req
+	backendNameHardCoded := "gcp-gemini-backend"
 
 	backend, ok := s.config.backends[backendNameHardCoded]
 	if !ok {
