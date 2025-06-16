@@ -11,6 +11,13 @@ import (
 	"regexp"
 )
 
+const (
+	MimeTypeImageJPEG = "image/jpeg"
+	MimeTypeImagePNG  = "image/png"
+	MimeTypeImageGIF  = "image/gif"
+	MimeTypeImageWEBP = "image/webp"
+)
+
 // regDataURI follows the web uri regex definition.
 // https://developer.mozilla.org/en-US/docs/Web/URI/Schemes/data#syntax
 var regDataURI = regexp.MustCompile(`\Adata:(.+?)?(;base64)?,`)

@@ -165,7 +165,7 @@ func fromUserMsg(msg openai.ChatCompletionUserMessageParam) ([]*genai.Part, erro
 					parts = append(parts, genai.NewPartFromBytes(imgBytes, mimeType))
 				} else {
 					// Identify mimeType based in image url
-					mimeType := "image/jpeg" // Default to jpeg if unknown
+					mimeType := MimeTypeImageJPEG // Default to jpeg if unknown
 					if mt := mime.TypeByExtension(path.Ext(imgURL)); mt != "" {
 						mimeType = mt
 					}
