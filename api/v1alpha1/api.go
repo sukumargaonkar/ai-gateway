@@ -437,15 +437,15 @@ const (
 	//
 	// https://learn.microsoft.com/en-us/azure/ai-services/openai/reference#api-specs
 	APISchemaAzureOpenAI APISchema = "AzureOpenAI"
-	// APISchemaGeminiVertexAI is the schema followed by Gemini models hosted on GCP's Vertex AI platform.
+	// APISchemaGCPVertexAI is the schema followed by Gemini models hosted on GCP's Vertex AI platform.
 	//
 	// https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.endpoints/generateContent?hl=en
-	APISchemaGeminiVertexAI APISchema = "GeminiVertexAI"
-	// APISchemaAnthropicVertexAI is the schema followed by Anthropic models hosted on GCP's Vertex AI platform.
+	APISchemaGCPVertexAI APISchema = "GCPVertexAI"
+	// APISchemaGCPAnthropic is the schema followed by Anthropic models hosted on GCP's Vertex AI platform.
 	// This is majorly the Anthropic API with some GCP specific parameters as described in below URL.
 	//
 	// https://docs.anthropic.com/en/api/claude-on-vertex-ai
-	APISchemaAnthropicVertexAI APISchema = "AnthropicVertexAI"
+	APISchemaGCPAnthropic APISchema = "GCPAnthropic"
 )
 
 const (
