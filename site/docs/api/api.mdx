@@ -643,7 +643,7 @@ APISchema defines the API schema.
   name="GCPVertexAI"
   type="enum"
   required="false"
-  description="APISchemaGCPVertexAI is the schema followed by Gemini models hosted on GCP's Vertex AI platform.<br />https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.endpoints/generateContent?hl=en<br />"
+  description="APISchemaGCPVertexAI is the schema followed by Gemini models hosted on GCP's Vertex AI platform.<br />Note: Using this schema requires a BackendSecurityPolicy to be configured and attached,<br />as the transformation will use the gcp-region and project-name from the BackendSecurityPolicy.<br />https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.endpoints/generateContent?hl=en<br />"
 /><ApiField
   name="GCPAnthropic"
   type="enum"

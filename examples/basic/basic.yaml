@@ -99,7 +99,7 @@ metadata:
   namespace: default
 spec:
   schema:
-    name: GCPGemini
+    name: GCPVertexAI
   backendRef:
     name: envoy-ai-gateway-basic-gcp
     kind: Backend

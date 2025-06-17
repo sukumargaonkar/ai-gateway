@@ -177,7 +177,7 @@ spec:
                     - OpenAI
                     - AWSBedrock
                     - AzureOpenAI
-                    - GCPGemini
+                    - GCPVertexAI
                     - GCPAnthropic
                     type: string
                   version:

@@ -414,7 +414,7 @@ type AIServiceBackendSpec struct {
 type VersionedAPISchema struct {
 	// Name is the name of the API schema of the AIGatewayRoute or AIServiceBackend.
 	//
-	// +kubebuilder:validation:Enum=OpenAI;AWSBedrock;AzureOpenAI;GCPGemini;GCPAnthropic
+	// +kubebuilder:validation:Enum=OpenAI;AWSBedrock;AzureOpenAI;GCPVertexAI;GCPAnthropic
 	Name APISchema `json:"name"`
 
 	// Version is the version of the API schema.
@@ -451,6 +451,8 @@ const (
 	// https://learn.microsoft.com/en-us/azure/ai-services/openai/reference#api-specs
 	APISchemaAzureOpenAI APISchema = "AzureOpenAI"
 	// APISchemaGCPVertexAI is the schema followed by Gemini models hosted on GCP's Vertex AI platform.
+	// Note: Using this schema requires a BackendSecurityPolicy to be configured and attached,
+	// as the transformation will use the gcp-region and project-name from the BackendSecurityPolicy.
 	//
 	// https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.endpoints/generateContent?hl=en
 	APISchemaGCPVertexAI APISchema = "GCPVertexAI"
