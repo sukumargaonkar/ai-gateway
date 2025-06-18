@@ -72,6 +72,18 @@ func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]gena
 			gcpParts = append(gcpParts, part)
 		case openai.ChatMessageRoleAssistant:
 			// flush any accumulated user/tool parts before assistant
+
+			// When using Gemini with parallel tool calls, multiple consecutive tool call messages can appear without an intervening assistant/model message.
+			// In this case, all tool message responses for the parallel tool calls must be grouped into a single GCP content.
+			// If not grouped, GCP returns an error like:
+			// {
+			//   "error": {
+			//     "code": 400,
+			//     "message": "Please ensure that the number of function response parts should be equal to number of function call parts of the function call turn.",
+			//     "status": "INVALID_ARGUMENT"
+			//   }
+			// }
+
 			if len(gcpParts) > 0 {
 				gcpContents = append(gcpContents, genai.Content{Role: genai.RoleUser, Parts: gcpParts})
 				gcpParts = nil
