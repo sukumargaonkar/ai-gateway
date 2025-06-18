@@ -13,6 +13,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/envoyproxy/ai-gateway/internal/controller/tokenprovider"
 )
 
 // ExpirationTimeAnnotationKey is exported for testing purposes within the controller.
@@ -74,4 +76,14 @@ func IsBufferedTimeExpired(buffer time.Duration, expirationTime time.Time) bool 
 // GetBSPSecretName will return the bspName with rotator prefix.
 func GetBSPSecretName(bspName string) string {
 	return fmt.Sprintf("%s-%s", rotatorSecretNamePrefix, bspName)
+}
+
+// populateAccessTokenInSecret will populate the access token in the secret.
+func populateAccessTokenInSecret(secret *corev1.Secret, token *tokenprovider.TokenExpiry, tokenKey string) {
+	updateExpirationSecretAnnotation(secret, token.ExpiresAt)
+
+	if secret.Data == nil {
+		secret.Data = make(map[string][]byte)
+	}
+	secret.Data[tokenKey] = []byte(token.Token)
 }

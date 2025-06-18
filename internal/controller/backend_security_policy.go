@@ -154,6 +154,23 @@ func (c *BackendSecurityPolicyController) rotateCredential(ctx context.Context, 
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+	case aigv1a1.BackendSecurityPolicyTypeGCPCredentials:
+		oidc := getBackendSecurityPolicyAuthOIDC(bsp.Spec)
+		if oidc != nil {
+			// Create a GCP OIDC token rotator that handles the full GCP Workload Identity Federation flow:
+			// 1. Get OIDC token from the configured provider
+			// 2. Exchange for GCP STS token
+			// 3. Use STS token to impersonate GCP service account
+			// 4. Store resulting access token in a Kubernetes secret
+			rotator, err = rotators.NewGCPOIDCTokenRotator(ctx, c.client, c.kube, c.logger, bsp, preRotationWindow)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			c.logger.Info("Skipping GCP OIDCProvider credentials rotation, OIDCProvider is not set on BackendSecurityPolicy.Spec")
+			return ctrl.Result{}, nil
+		}
+
 	default:
 		err = fmt.Errorf("backend security type %s does not support OIDC token exchange", bsp.Spec.Type)
 		c.logger.Error(err, "namespace", bsp.Namespace, "name", bsp.Name)
@@ -207,6 +224,10 @@ func getBackendSecurityPolicyAuthOIDC(spec aigv1a1.BackendSecurityPolicySpec) *e
 			return &spec.AzureCredentials.OIDCExchangeToken.OIDC
 		}
 		return nil
+	case aigv1a1.BackendSecurityPolicyTypeGCPCredentials:
+		if spec.GCPCredentials != nil {
+			return &spec.GCPCredentials.WorkLoadIdentityFederationConfig.WorkloadIdentityProvider.OIDCProvider.OIDC
+		}
 	}
 	return nil
 }
