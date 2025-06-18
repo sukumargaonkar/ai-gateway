@@ -34,6 +34,27 @@ const (
 	gcpBackendError  = "GCPBackendError"
 )
 
+type openAIToGCPAnthropicTranslatorV1ChatCompletion struct {
+	// Configuration flags for Vertex AI
+	isVertex        bool
+	vertexRegion    string
+	vertexProjectID string
+}
+
+// WithVertexAI returns a TranslatorOption that configures the translator to target
+// the Google Cloud Vertex AI endpoint instead of the default Anthropic API.
+// It requires the GCP region and project ID.
+func WithVertexAI(region, projectID string) TranslatorOption {
+	return func(t *openAIToGCPAnthropicTranslatorV1ChatCompletion) {
+		t.isVertex = true
+		t.vertexRegion = region
+		t.vertexProjectID = projectID
+	}
+}
+
+// TranslatorOption defines a function that configures the translator.
+type TranslatorOption func(*openAIToGCPAnthropicTranslatorV1ChatCompletion)
+
 // Anthropic request/response structs
 type AnthropicContent struct {
 	Type   string                            `json:"type"`
@@ -57,12 +78,15 @@ type anthropicRequest struct {
 	TopP *float64 `json:"top_p,omitempty"`
 }
 
-// NewChatCompletionOpenAIToGCPAnthropicTranslator implements [Factory] for OpenAI to GCP Gemini translation.
-func NewChatCompletionOpenAIToGCPAnthropicTranslator() OpenAIChatCompletionTranslator {
-	return &openAIToGCPAnthropicTranslatorV1ChatCompletion{}
+// NewChatCompletionOpenAIToGCPAnthropicTranslator creates a new translator.
+// It can be configured with options, such as WithVertexAI, to change its target endpoint.
+func NewChatCompletionOpenAIToGCPAnthropicTranslator(opts ...TranslatorOption) OpenAIChatCompletionTranslator {
+	translator := &openAIToGCPAnthropicTranslatorV1ChatCompletion{}
+	for _, opt := range opts {
+		opt(translator)
+	}
+	return translator
 }
-
-type openAIToGCPAnthropicTranslatorV1ChatCompletion struct{}
 
 func anthropicToOpenAIFinishReason(stopReason anthropic.StopReason) (openai.ChatCompletionChoicesFinishReason, error) {
 	switch stopReason {
@@ -324,7 +348,7 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 }
 
 // openAIMessageToGCPAnthropicMessage converts OpenAI messages to Anthropic messages, handling all roles and system/developer logic
-func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest, anthropicReq *anthropicRequest) (err error) {
+func openAIMessageToGCPAnthropicMessage(openAIReq *openai.ChatCompletionRequest, anthropicReq *anthropic.MessageNewParams) (err error) {
 	anthropicReq.Messages = make([]anthropic.MessageParam, 0, len(openAIReq.Messages))
 	for i := range openAIReq.Messages {
 		msg := &openAIReq.Messages[i]
@@ -407,7 +431,6 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 	region := "us-east5"
 	project := ""
 	model := openAIReq.Model // TODO: make var
-	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", region, project, region, model)
 
 	// Validate max_tokens/max_completion_tokens is set
 	if openAIReq.MaxTokens == nil && openAIReq.MaxCompletionTokens == nil {
@@ -418,21 +441,35 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 		return nil, nil, validateErr
 	}
 
+	//TODO: left off here, need to add this - take out vertex logic & fix tests
+	// --- Common Request Building ---
+	messages, systemPrompt := openAIMessagesToAnthropicParams(openAIReq.Messages)
+	stopSequences, err := extractStopSequencesFromPtrSlice(openAIReq.Stop)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// TODO: add stream support
+	// Determine the Vertex AI endpoint specifier based on the stream flag.
+	specifier := "rawPredict"
 	if openAIReq.Stream {
+		// Note: Full streaming support is not yet implemented in the response handler.
+		// specifier = "streamRawPredict"
 		return nil, nil, fmt.Errorf("streaming is not yet supported for GCP Anthropic translation")
 	}
 
-	anthropicReq := anthropicRequest{
-		AnthropicVersion: anthropicVersion,
-		MaxTokens:        *openAIReq.MaxTokens,
-		Model:            anthropic.Model(model),
-		Temperature:      openAIReq.Temperature,
-		TopP:             openAIReq.TopP,
-		// Stream:           openAIReq.Stream,
-		// TODO: add tool support
-		// TODO: add tool_choice support
+	// Construct the Vertex AI-specific path.
+	gcpReqPath := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:%s", project, region, model, specifier)
+
+	anthropicReq := anthropic.MessageNewParams{
+		MaxTokens:   int64(int(*openAIReq.MaxTokens)),
+		Temperature: anthropic.Float(*openAIReq.Temperature),
+		TopP:        anthropic.Float(*openAIReq.TopP),
+		// We intentionally DO NOT set the .Model field.
+		// This ensures it's omitted from the JSON body, as required by Vertex.
 	}
+	// TODO: add tool support
+	// TODO: add tool_choice support
 
 	// Validate and extract stop sequences
 	stopSequences, err := extractStopSequencesFromPtrSlice(openAIReq.Stop)
