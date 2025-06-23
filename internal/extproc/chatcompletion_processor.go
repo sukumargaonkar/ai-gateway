@@ -155,7 +155,8 @@ func (c *chatCompletionProcessorUpstreamFilter) selectTranslator(out filterapi.V
 	case filterapi.APISchemaGCPGemini:
 		c.translator = translator.NewChatCompletionOpenAIToGCPGeminiTranslator()
 	case filterapi.APISchemaGCPAnthropic:
-		c.translator = translator.NewChatCompletionOpenAIToGCPAnthropicTranslator()
+		// TODO: fix region/projectID
+		c.translator = translator.NewChatCompletionOpenAIToAnthropicTranslator(translator.WithVertexAI("test-region", "test-projectID"))
 	default:
 		return fmt.Errorf("unsupported API schema: backend=%s", out)
 	}
