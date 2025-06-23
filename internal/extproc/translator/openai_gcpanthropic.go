@@ -413,6 +413,7 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 
 	anthropicReq := anthropic.MessageNewParams{
 		MaxTokens: *openAIReq.MaxTokens,
+		Model:     anthropic.Model(openAIReq.Model),
 	}
 	// TODO: add tool support
 	// TODO: add tool_choice support
