@@ -327,7 +327,6 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 
 // openAIMessagesToAnthropicParams converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic
 func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest, anthropicReq *anthropic.MessageNewParams) (err error) {
-	var systemPromptBuilder strings.Builder
 	anthropicReq.Messages = make([]anthropic.MessageParam, 0, len(openAIReq.Messages))
 
 	for i := range openAIReq.Messages {

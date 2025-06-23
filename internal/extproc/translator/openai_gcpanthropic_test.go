@@ -139,7 +139,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_ResponseBody(t *testing.
 				Role: "assistant",
 				Content: []anthropic.ContentBlockUnion{
 					{Type: "text", Text: "Ok, I will call the tool."},
-					{Type: "tool_use", ID: "toolu_01", Name: "get_weather", Input: map[string]interface{}{"location": "Tokyo", "unit": "celsius"}},
+					{Type: "tool_use", ID: "toolu_01", Name: "get_weather", Input: json.RawMessage(`{"location": "Tokyo", "unit": "celsius"}`)},
 				},
 				StopReason: anthropic.StopReasonToolUse,
 				Usage:      anthropic.Usage{InputTokens: 25, OutputTokens: 15},
