@@ -277,10 +277,6 @@ func anthropicRoleToOpenAIRole(role anthropic.MessageParamRole) (string, error) 
 		return openai.ChatMessageRoleAssistant, nil
 	case "user":
 		return openai.ChatMessageRoleUser, nil
-	//case "system":
-	//	return openai.ChatMessageRoleSystem, nil
-	//case "tool":
-	//	return openai.ChatMessageRoleTool, nil
 	default:
 		return "", fmt.Errorf("invalid anthropic role %v", role)
 	}
