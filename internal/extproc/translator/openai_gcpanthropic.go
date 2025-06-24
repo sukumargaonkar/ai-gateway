@@ -32,23 +32,8 @@ const (
 	gcpBackendError  = "GCPBackendError"
 )
 
-type openAIToAnthropicTranslatorV1ChatCompletion struct {
-	// Configuration flags for Vertex AI
-	isVertex        bool
-	vertexRegion    string
-	vertexProjectID string
-}
-
-// WithVertexAI returns a TranslatorOption that configures the translator to target
-// the Google Cloud Vertex AI endpoint instead of the default Anthropic API.
-// It requires the GCP region and project ID.
-func WithVertexAI(region, projectID string) TranslatorOption {
-	return func(t *openAIToAnthropicTranslatorV1ChatCompletion) {
-		t.isVertex = true
-		t.vertexRegion = region
-		t.vertexProjectID = projectID
-	}
-}
+// openAIToAnthropicTranslatorV1ChatCompletion where we can store information for streaming requests
+type openAIToAnthropicTranslatorV1ChatCompletion struct{}
 
 // TranslatorOption defines a function that configures the translator.
 type TranslatorOption func(*openAIToAnthropicTranslatorV1ChatCompletion)
@@ -61,20 +46,15 @@ type AnthropicContent struct {
 }
 
 // NewChatCompletionOpenAIToAnthropicTranslator creates a new translator.
-// It can be configured with options, such as WithVertexAI, to change its target endpoint.
-func NewChatCompletionOpenAIToAnthropicTranslator(opts ...TranslatorOption) OpenAIChatCompletionTranslator {
-	translator := &openAIToAnthropicTranslatorV1ChatCompletion{}
-	for _, opt := range opts {
-		opt(translator)
-	}
-	return translator
+func NewChatCompletionOpenAIToAnthropicTranslator() OpenAIChatCompletionTranslator {
+	return &openAIToAnthropicTranslatorV1ChatCompletion{}
 }
 
 func anthropicToOpenAIFinishReason(stopReason anthropic.StopReason) (openai.ChatCompletionChoicesFinishReason, error) {
 	switch stopReason {
 	// The most common stop reason. Indicates Claude finished its response naturally.
 	// or Claude encountered one of your custom stop sequences.
-	// TODO: A better way to return pause_turng
+	// TODO: A better way to return pause_turning
 	// TODO: "pause_turn" Used with server tools like web search when Claude needs to pause a long-running operation.
 	case anthropic.StopReasonEndTurn, anthropic.StopReasonStopSequence, anthropic.StopReasonPauseTurn:
 		return openai.ChatCompletionChoicesFinishReasonStop, nil
@@ -407,6 +387,7 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
 	// Validate max_tokens/max_completion_tokens is set
+	// TODO: get timeout instead of error here when testing(?)
 	if openAIReq.MaxTokens == nil && openAIReq.MaxCompletionTokens == nil {
 		return nil, nil, fmt.Errorf("max_tokens is required in OpenAI request")
 	}
@@ -449,32 +430,30 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 		return nil, nil, err
 	}
 
-	path := "/v1/messages" // Default to standard Anthropic path
-
 	// TODO: add stream support
-	if o.isVertex {
-		// --- VERTEX AI PATH ---
-		specifier := "rawPredict"
-		if openAIReq.Stream {
-			// Note: Full streaming support is not yet implemented in the response handler.
-			// specifier = "streamRawPredict"
-			return nil, nil, fmt.Errorf("streaming is not yet supported for GCP Anthropic translation")
-		}
-		path = fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:%s", o.vertexProjectID, o.vertexRegion, openAIReq.Model, specifier)
-
-		// a. Delete the "model" key from the JSON body
-		body, _ = sjson.DeleteBytes(body, "model")
-
-		// b. Set the "anthropic_version" key in the JSON body
-		body, _ = sjson.SetBytes(body, "anthropic_version", anthropicVersion)
+	// --- VERTEX AI PATH ---
+	specifier := "rawPredict"
+	if openAIReq.Stream {
+		// Note: Full streaming support is not yet implemented in the response handler.
+		// specifier = "streamRawPredict"
+		return nil, nil, fmt.Errorf("streaming is not yet supported for GCP Anthropic translation")
 	}
+
+	model := strings.TrimPrefix(openAIReq.Model, "gcp.")
+	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s", "us-central1", "project-name", "us-central1", "anthropic", model, specifier)
+	// TODO: make this util method
+	// a. Delete the "model" key from the JSON body
+	body, _ = sjson.DeleteBytes(body, "model")
+
+	// b. Set the "anthropic_version" key in the JSON body
+	body, _ = sjson.SetBytes(body, "anthropic_version", anthropicVersion)
 
 	headerMutation = &extprocv3.HeaderMutation{
 		SetHeaders: []*corev3.HeaderValueOption{
 			{
 				Header: &corev3.HeaderValue{
 					Key:      ":path",
-					RawValue: []byte(path),
+					RawValue: []byte(gcpReqPath),
 				},
 			},
 			{

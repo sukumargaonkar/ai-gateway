@@ -155,8 +155,7 @@ func (c *chatCompletionProcessorUpstreamFilter) selectTranslator(out filterapi.V
 	case filterapi.APISchemaGCPGemini:
 		c.translator = translator.NewChatCompletionOpenAIToGCPGeminiTranslator()
 	case filterapi.APISchemaGCPAnthropic:
-		// TODO: fix region/projectID
-		c.translator = translator.NewChatCompletionOpenAIToAnthropicTranslator(translator.WithVertexAI("test-region", "test-projectID"))
+		c.translator = translator.NewChatCompletionOpenAIToAnthropicTranslator()
 	default:
 		return fmt.Errorf("unsupported API schema: backend=%s", out)
 	}
@@ -195,6 +194,7 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessRequestBody(ctx context.C
 
 	headerMutation, bodyMutation, err := c.translator.RequestBody(c.originalRequestBodyRaw, c.originalRequestBody, c.onRetry)
 	if err != nil {
+		// TODO: should return HTTP error(?)
 		return nil, fmt.Errorf("failed to transform request: %w", err)
 	}
 	if headerMutation == nil {
