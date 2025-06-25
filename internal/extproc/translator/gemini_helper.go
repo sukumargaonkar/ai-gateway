@@ -11,11 +11,20 @@ import (
 	"mime"
 	"net/url"
 	"path"
+	"strconv"
 
+	"github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	"github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/google/uuid"
 	"google.golang.org/genai"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
+)
+
+const (
+	GCPModelPublisherGoogle    = "google"
+	GCPModelPublisherAnthropic = "anthropic"
+	GCPMethodGenerateContent   = "generateContent"
 )
 
 // -------------------------------------------------------------
@@ -480,4 +489,38 @@ func toLogprobs(logprobsResult genai.LogprobsResult) openai.ChatCompletionChoice
 	return openai.ChatCompletionChoicesLogprobs{
 		Content: content,
 	}
+}
+
+func buildGCPModelPathSuffix(publisher, model, gcpMethod string) string {
+	pathSuffix := fmt.Sprintf("publishers/%s/models/%s:%s", publisher, model, gcpMethod)
+	return pathSuffix
+}
+
+// buildGCPRequestMutations creates header and body mutations for GCP requests
+// It sets the ":path" header, the "content-length" header and the request body.
+func buildGCPRequestMutations(path string, reqBody []byte) (*ext_procv3.HeaderMutation, *ext_procv3.BodyMutation) {
+	// Create header mutation
+	headerMutation := &ext_procv3.HeaderMutation{
+		SetHeaders: []*corev3.HeaderValueOption{
+			{
+				Header: &corev3.HeaderValue{
+					Key:      ":path",
+					RawValue: []byte(path),
+				},
+			},
+			{
+				Header: &corev3.HeaderValue{
+					Key:      "content-length",
+					RawValue: []byte(strconv.Itoa(len(reqBody))),
+				},
+			},
+		},
+	}
+
+	// Create body mutation
+	bodyMutation := &ext_procv3.BodyMutation{
+		Mutation: &ext_procv3.BodyMutation_Body{Body: reqBody},
+	}
+
+	return headerMutation, bodyMutation
 }

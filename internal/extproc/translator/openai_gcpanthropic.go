@@ -9,12 +9,9 @@
 package translator
 
 import (
-	"fmt"
 	"io"
-	"strconv"
 	"strings"
 
-	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
@@ -34,7 +31,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 	_ = onRetry
 	model := openAIReq.Model
 	model = strings.TrimPrefix(model, "gcp.")
-	gcpReqPathTemplate := fmt.Sprintf("https://{{.%s}}-aiplatform.googleapis.com/v1/projects/{{.%s}}/locations/{{.%s}}/publishers/anthropic/models/%s:rawPredict", GCPRegionTemplateKey, GCPProjectTemplateKey, GCPRegionTemplateKey, model)
+	pathSuffix := buildGCPModelPathSuffix(GCPModelPublisherAnthropic, model, GCPMethodGenerateContent)
 
 	// TODO: Implement actual translation from OpenAI to Anthropic request.
 	// For now we just hardcoded an example request
@@ -55,25 +52,7 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
   "stream": false
 }`)
 
-	headerMutation = &extprocv3.HeaderMutation{
-		SetHeaders: []*corev3.HeaderValueOption{
-			{
-				Header: &corev3.HeaderValue{
-					Key:      ":path",
-					RawValue: []byte(gcpReqPathTemplate),
-				},
-			},
-			{
-				Header: &corev3.HeaderValue{
-					Key:      "content-length",
-					RawValue: []byte(strconv.Itoa(len(gcpReqBody))),
-				},
-			},
-		},
-	}
-	bodyMutation = &extprocv3.BodyMutation{
-		Mutation: &extprocv3.BodyMutation_Body{Body: gcpReqBody},
-	}
+	headerMutation, bodyMutation = buildGCPRequestMutations(pathSuffix, gcpReqBody)
 	return headerMutation, bodyMutation, nil
 }
 

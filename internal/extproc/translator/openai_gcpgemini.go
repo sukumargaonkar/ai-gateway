@@ -22,11 +22,6 @@ import (
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
-const (
-	GCPRegionTemplateKey  = "gcpRegion"
-	GCPProjectTemplateKey = "gcpProjectName"
-)
-
 type GenerateContentRequest struct {
 	Contents          []genai.Content         `json:"contents"`
 	Tools             []genai.Tool            `json:"tools"`
@@ -51,29 +46,17 @@ func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 		return nil, nil, fmt.Errorf("error converting OpenAI request to Gemini request: %w", err)
 	}
 
-	model := openAIReq.Model
-	model = strings.TrimPrefix(model, "gcp.")
-	gcpReqPathTemplate := fmt.Sprintf("https://{{.%s}}-aiplatform.googleapis.com/v1/projects/{{.%s}}/locations/{{.%s}}/publishers/google/models/%s:generateContent", GCPRegionTemplateKey, GCPProjectTemplateKey, GCPRegionTemplateKey, model)
-	gcpReqBody, err := json.Marshal(gcpReq)
+	// Trim the model prefix if needed
+	model := strings.TrimPrefix(openAIReq.Model, "gcp.") // TODO: remove before pushing upstream
+	pathSuffix := buildGCPModelPathSuffix(GCPModelPublisherGoogle, model, GCPMethodGenerateContent)
+
+	// Marshal the request body to JSON
+	reqBodyBytes, err := json.Marshal(gcpReq)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error marshaling Gemini request: %w", err)
 	}
 
-	headerMutation = &extprocv3.HeaderMutation{
-		SetHeaders: []*corev3.HeaderValueOption{
-			{Header: &corev3.HeaderValue{
-				Key:      ":path",
-				RawValue: []byte(gcpReqPathTemplate),
-			}},
-			{Header: &corev3.HeaderValue{
-				Key:      "content-length",
-				RawValue: []byte(strconv.Itoa(len(gcpReqBody))),
-			}},
-		},
-	}
-	bodyMutation = &extprocv3.BodyMutation{
-		Mutation: &extprocv3.BodyMutation_Body{Body: gcpReqBody},
-	}
+	headerMutation, bodyMutation = buildGCPRequestMutations(pathSuffix, reqBodyBytes)
 	return headerMutation, bodyMutation, nil
 }
 
