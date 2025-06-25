@@ -30,6 +30,7 @@ require (
 	golang.org/x/exp v0.0.0-20250530174510-65e920069ea6
 	golang.org/x/oauth2 v0.30.0
 	google.golang.org/api v0.223.0
+	google.golang.org/genai v1.13.0
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6
 	k8s.io/api v0.33.1
@@ -48,6 +49,7 @@ require (
 	4d63.com/gochecknoglobals v0.2.2 // indirect
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	cel.dev/expr v0.23.1 // indirect
+	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/auth v0.15.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect

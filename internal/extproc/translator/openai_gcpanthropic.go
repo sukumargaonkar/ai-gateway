@@ -10,6 +10,7 @@ package translator
 
 import (
 	"io"
+	"strings"
 
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 
@@ -29,9 +30,15 @@ type openAIToGCPAnthropicTranslatorV1ChatCompletion struct{}
 func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, onRetry bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
-	// TODO: Implement translation from OpenAI to Anthropic request format
-	_, _ = openAIReq, onRetry
-	return nil, nil, nil
+	_ = onRetry
+	model := openAIReq.Model
+	model = strings.TrimPrefix(model, "gcp.")
+	pathSuffix := buildGCPModelPathSuffix(GCPModelPublisherAnthropic, model, GCPMethodGenerateContent)
+
+	// TODO: Implement actual translation from OpenAI to Anthropic request.
+
+	headerMutation, bodyMutation = buildGCPRequestMutations(pathSuffix, nil)
+	return headerMutation, bodyMutation, nil
 }
 
 // ResponseHeaders implements [Translator.ResponseHeaders].

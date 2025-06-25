@@ -155,37 +155,21 @@ func (c *BackendSecurityPolicyController) rotateCredential(ctx context.Context, 
 			return ctrl.Result{}, err
 		}
 	case aigv1a1.BackendSecurityPolicyTypeGCPCredentials:
+		if err = validateGCPCredentialsParams(bsp.Spec.GCPCredentials); err != nil {
+			return ctrl.Result{}, fmt.Errorf("invalid GCP credentials configuration: %w", err)
+		}
+
 		oidc := getBackendSecurityPolicyAuthOIDC(bsp.Spec)
-		if oidc != nil {
-			// Create a GCP OIDC token rotator that handles the full GCP Workload Identity Federation flow:
-			// 1. Get OIDC token from the configured provider
-			// 2. Exchange for GCP STS token
-			// 3. Use STS token to impersonate GCP service account
-			// 4. Store resulting access token in a Kubernetes secret
-			// Get the OIDC configuration from the backend security policy
 
-			if bsp.Spec.GCPCredentials == nil {
-				return ctrl.Result{}, fmt.Errorf("invalid backend security policy, gcp credentials cannot be nil")
-			}
-			if err = validateGCPCredentialsParams(*bsp.Spec.GCPCredentials); err != nil {
-				return ctrl.Result{}, fmt.Errorf("invalid GCP credentials configuration: %w", err)
-			}
-
-			oidcConfig := bsp.Spec.GCPCredentials.WorkLoadIdentityFederationConfig.WorkloadIdentityProvider.OIDCProvider.OIDC
-
-			// Create the OIDC token provider that will be used to get tokens from the OIDC provider
-			var oidcProvider tokenprovider.TokenProvider
-			oidcProvider, err = tokenprovider.NewOidcTokenProvider(ctx, c.client, &oidcConfig)
-			if err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to initialize OIDC provider: %w", err)
-			}
-			rotator, err = rotators.NewGCPOIDCTokenRotator(c.client, c.logger, *bsp, preRotationWindow, oidcProvider)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-		} else {
-			c.logger.Info("Skipping GCP OIDCProvider credentials rotation, OIDCProvider is not set on BackendSecurityPolicy.Spec")
-			return ctrl.Result{}, nil
+		// Create the OIDC token provider that will be used to get tokens from the OIDC provider
+		var oidcProvider tokenprovider.TokenProvider
+		oidcProvider, err = tokenprovider.NewOidcTokenProvider(ctx, c.client, oidc)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to initialize OIDC provider: %w", err)
+		}
+		rotator, err = rotators.NewGCPOIDCTokenRotator(c.client, c.logger, *bsp, preRotationWindow, oidcProvider)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 
 	default:
@@ -277,7 +261,10 @@ func (c *BackendSecurityPolicyController) updateBackendSecurityPolicyStatus(ctx 
 	}
 }
 
-func validateGCPCredentialsParams(gcpCreds aigv1a1.BackendSecurityPolicyGCPCredentials) error {
+func validateGCPCredentialsParams(gcpCreds *aigv1a1.BackendSecurityPolicyGCPCredentials) error {
+	if gcpCreds == nil {
+		return fmt.Errorf("invalid backend security policy, gcp credentials cannot be nil")
+	}
 	if gcpCreds.ProjectName == "" {
 		return fmt.Errorf("invalid GCP credentials configuration: projectName cannot be empty")
 	}

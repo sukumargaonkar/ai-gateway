@@ -12,16 +12,18 @@ import (
 	"io"
 
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"google.golang.org/genai"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
-const (
-	// GCPRegionTemplateKey is the template key for the GCP region in path templates
-	GCPRegionTemplateKey = "gcpRegion"
-	// GCPProjectTemplateKey is the template key for the GCP project name in path templates
-	GCPProjectTemplateKey = "gcpProjectName"
-)
+type GenerateContentRequest struct {
+	Contents          []genai.Content         `json:"contents"`
+	Tools             []genai.Tool            `json:"tools"`
+	ToolConfig        *genai.ToolConfig       `json:"tool_config,omitempty"`
+	GenerationConfig  *genai.GenerationConfig `json:"generation_config,omitempty"`
+	SystemInstruction *genai.Content          `json:"system_instruction,omitempty"`
+}
 
 // NewChatCompletionOpenAIToGCPGeminiTranslator implements [Factory] for OpenAI to GCP Gemini translation.
 // This translator converts OpenAI ChatCompletion API requests to GCP Gemini API format.
@@ -36,10 +38,13 @@ type openAIToGCPGeminiTranslatorV1ChatCompletion struct{}
 func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, onRetry bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
-	// TODO: Implement actual translation from OpenAI to Gemini request.
 	_, _ = openAIReq, onRetry
+	pathSuffix := buildGCPModelPathSuffix(GCPModelPublisherGoogle, openAIReq.Model, GCPMethodGenerateContent)
 
-	return nil, nil, nil
+	// TODO: Implement actual translation from OpenAI to Gemini request.
+
+	headerMutation, bodyMutation = buildGCPRequestMutations(pathSuffix, nil)
+	return headerMutation, bodyMutation, nil
 }
 
 // ResponseHeaders implements [Translator.ResponseHeaders].
@@ -49,15 +54,6 @@ func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) ResponseHeaders(headers ma
 	// TODO: Implement if needed.
 	_ = headers
 	return nil, nil
-}
-
-// ResponseError implements [Translator.ResponseError].
-func (o *openAIToGCPGeminiTranslatorV1ChatCompletion) ResponseError(respHeaders map[string]string, body interface{}) (
-	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
-) {
-	// TODO: Implement error translation.
-	_, _ = respHeaders, body
-	return nil, nil, nil
 }
 
 // ResponseBody implements [Translator.ResponseBody] for GCP Gemini.
