@@ -306,6 +306,7 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 
 // openAIMessagesToAnthropicParams converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic
 func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anthropic.MessageNewParams, err error) {
+	params = &anthropic.MessageNewParams{}
 	params.Messages = make([]anthropic.MessageParam, 0, len(openAIReq.Messages))
 
 	for i := range openAIReq.Messages {
@@ -445,10 +446,11 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 
 	// TODO: remove before merge - use util method
 	model := strings.TrimPrefix(openAIReq.Model, "gcp.")
-	region := "us-east5"
-	project := "test-project"
-	publisher := "anthropic"
-	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s", region, project, region, publisher, model, specifier)
+	//region := "us-east5"
+	//project := "test-project"
+	//publisher := "anthropic"
+	gcpPath := fmt.Sprintf("/models/%s:%s", model, specifier)
+	//gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s", region, project, region, publisher, model, specifier)
 
 	// b. Set the "anthropic_version" key in the JSON body
 	// Using same logic as anthropic go SDK: https://github.com/anthropics/anthropic-sdk-go/blob/main/vertex/vertex.go#L78
@@ -460,7 +462,7 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 			{
 				Header: &corev3.HeaderValue{
 					Key:      ":path",
-					RawValue: []byte(gcpReqPath),
+					RawValue: []byte(gcpPath),
 				},
 			},
 			{

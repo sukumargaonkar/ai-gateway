@@ -3,12 +3,14 @@ package translator
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strconv"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared"
+	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
@@ -18,8 +20,9 @@ import (
 
 func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T) {
 	// Define a common input request to use for both standard and vertex tests.
+	claudeOpusModel := "claude-3-opus-20240229"
 	openAIReq := &openai.ChatCompletionRequest{
-		Model: "claude-3-opus-20240229",
+		Model: claudeOpusModel,
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			{
 				Type:  openai.ChatMessageRoleSystem,
@@ -34,7 +37,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		Temperature: ptr.To(0.7),
 	}
 
-	// Sub-test for the standard Anthropic API endpoint
+	// Subtest for the standard Anthropic API endpoint
 	t.Run("Standard Anthropic API", func(t *testing.T) {
 		translator := NewChatCompletionOpenAIToAnthropicTranslator() // No options
 		hm, bm, err := translator.RequestBody(nil, openAIReq, false)
@@ -45,15 +48,13 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		// Check the path header
 		pathHeader := hm.SetHeaders[0]
 		require.Equal(t, ":path", pathHeader.Header.Key)
-		require.Equal(t, "/v1/messages", string(pathHeader.Header.RawValue))
+		require.Equal(t, fmt.Sprintf("/models/%s:rawPredict", openAIReq.Model), string(pathHeader.Header.RawValue))
 
 		// Check the body content
 		body := bm.GetBody()
 		require.NotNil(t, body)
-		// Model should be present in the body
-		require.Equal(t, "claude-3-opus-20240229", gjson.GetBytes(body, "model").String())
-		// Anthropic version should NOT be present
-		require.False(t, gjson.GetBytes(body, "anthropic_version").Exists())
+		// Anthropic version should be present
+		require.True(t, gjson.GetBytes(body, "anthropic_version").Exists())
 	})
 
 	// TOOD: update
@@ -70,9 +71,8 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		// Check the path header
 		pathHeader := hm.SetHeaders[0]
 		require.Equal(t, ":path", pathHeader.Header.Key)
-		//TODO: add once region/project method working
-		//expectedPath := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:rawPredict", projectID, region, openAIReq.Model)
-		//require.Equal(t, expectedPath, string(pathHeader.Header.RawValue))
+		expectedPath := fmt.Sprintf("/models/%s:rawPredict", openAIReq.Model)
+		require.Equal(t, expectedPath, string(pathHeader.Header.RawValue))
 
 		// Check the body content
 		body := bm.GetBody()
@@ -84,16 +84,17 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 	})
 
 	// Test for missing required parameter
-	t.Run("Missing MaxTokens", func(t *testing.T) {
-		invalidReq := &openai.ChatCompletionRequest{
+	t.Run("Missing MaxTokens Uses Default", func(t *testing.T) {
+		missingTokensReq := &openai.ChatCompletionRequest{
 			Model:     "claude-3",
 			Messages:  []openai.ChatCompletionMessageParamUnion{},
 			MaxTokens: nil, // Missing
 		}
 		translator := NewChatCompletionOpenAIToAnthropicTranslator()
-		_, _, err := translator.RequestBody(nil, invalidReq, false)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "max_tokens is required")
+		_, bm, err := translator.RequestBody(nil, missingTokensReq, false)
+		require.NoError(t, err)
+		body := bm.GetBody()
+		require.Equal(t, defaultMaxTokens, gjson.GetBytes(body, "max_tokens").Int())
 	})
 }
 
@@ -114,7 +115,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_ResponseBody(t *testing.
 		{
 			name: "basic text response",
 			inputResponse: &anthropic.Message{
-				Role:       "assistant",
+				Role:       constant.Assistant(anthropic.MessageParamRoleAssistant),
 				Content:    []anthropic.ContentBlockUnion{{Type: "text", Text: "Hello there!"}},
 				StopReason: anthropic.StopReasonEndTurn,
 				Usage:      anthropic.Usage{InputTokens: 10, OutputTokens: 20},
@@ -135,7 +136,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_ResponseBody(t *testing.
 		{
 			name: "response with tool use",
 			inputResponse: &anthropic.Message{
-				Role: "assistant",
+				Role: constant.Assistant(anthropic.MessageParamRoleAssistant),
 				Content: []anthropic.ContentBlockUnion{
 					{Type: "text", Text: "Ok, I will call the tool."},
 					{Type: "tool_use", ID: "toolu_01", Name: "get_weather", Input: json.RawMessage(`{"location": "Tokyo", "unit": "celsius"}`)},
@@ -152,7 +153,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_ResponseBody(t *testing.
 						Index:        0,
 						FinishReason: openai.ChatCompletionChoicesFinishReasonToolCalls,
 						Message: openai.ChatCompletionResponseChoiceMessage{
-							Role:    "assistant",
+							Role:    string(anthropic.MessageParamRoleAssistant),
 							Content: ptr.To("Ok, I will call the tool."),
 							ToolCalls: []openai.ChatCompletionMessageToolCallParam{
 								{
