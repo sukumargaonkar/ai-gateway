@@ -231,7 +231,6 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseHeaders(ctx conte
 	}()
 
 	c.responseHeaders = headersToMap(headers)
-	fmt.Println("response headers in chat completion processor upstream filter", c.responseHeaders)
 	if enc := c.responseHeaders["content-encoding"]; enc != "" {
 		c.responseEncoding = enc
 	}
@@ -310,7 +309,6 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 		}
 	}
 
-	fmt.Println("returning response in chat completion processor upstream filter", resp)
 	return resp, nil
 }
 

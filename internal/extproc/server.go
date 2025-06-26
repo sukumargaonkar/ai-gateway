@@ -238,7 +238,6 @@ func (s *Server) Process(stream extprocv3.ExternalProcessor_ProcessServer) error
 			s.logger.Error("cannot send response", slog.String("error", err.Error()))
 			return status.Errorf(codes.Unknown, "cannot send response: %v", err)
 		}
-		fmt.Println("sent response", slog.Any("response", resp))
 	}
 }
 

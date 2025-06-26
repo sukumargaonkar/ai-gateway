@@ -24,12 +24,11 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// TODO: support for mcp server field, server tier(?)
-
 // currently a requirement for GCP Vertex / Anthropic API https://docs.anthropic.com/en/api/claude-on-vertex-ai
 const (
 	anthropicVersion = "vertex-2023-10-16"
 	gcpBackendError  = "GCPBackendError"
+	defaultMaxTokens = int64(100)
 )
 
 // openAIToAnthropicTranslatorV1ChatCompletion where we can store information for streaming requests
@@ -253,9 +252,9 @@ func extractSystemOrDeveloperPromptFromDeveloper(msg openai.ChatCompletionDevelo
 
 func anthropicRoleToOpenAIRole(role anthropic.MessageParamRole) (string, error) {
 	switch role {
-	case "assistant":
+	case anthropic.MessageParamRoleAssistant:
 		return openai.ChatMessageRoleAssistant, nil
-	case "user":
+	case anthropic.MessageParamRoleUser:
 		return openai.ChatMessageRoleUser, nil
 	default:
 		return "", fmt.Errorf("invalid anthropic role %v", role)
@@ -306,8 +305,8 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 }
 
 // openAIMessagesToAnthropicParams converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic
-func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest, anthropicReq *anthropic.MessageNewParams) (err error) {
-	anthropicReq.Messages = make([]anthropic.MessageParam, 0, len(openAIReq.Messages))
+func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anthropic.MessageNewParams, err error) {
+	params.Messages = make([]anthropic.MessageParam, 0, len(openAIReq.Messages))
 
 	for i := range openAIReq.Messages {
 		msg := &openAIReq.Messages[i]
@@ -317,23 +316,23 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest, an
 			var content []anthropic.ContentBlockParamUnion
 			content, err = openAIToAnthropicContent(message.Content.Value)
 			if err != nil {
-				return err
+				return &anthropic.MessageNewParams{}, err
 			}
 			anthropicMsg := anthropic.MessageParam{
 				Role:    anthropic.MessageParamRoleUser,
 				Content: content,
 			}
-			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
+			params.Messages = append(params.Messages, anthropicMsg)
 		case openai.ChatMessageRoleAssistant:
 			assistantMessage := msg.Value.(openai.ChatCompletionAssistantMessageParam)
 
 			var messages *anthropic.MessageParam
 			messages, err = openAIMessageToAnthropicMessageRoleAssistant(&assistantMessage)
 			if err != nil {
-				return err
+				return &anthropic.MessageNewParams{}, err
 			}
 			// TODO: check works with multi tool
-			anthropicReq.Messages = append(anthropicReq.Messages, *messages)
+			params.Messages = append(params.Messages, *messages)
 		case openai.ChatMessageRoleDeveloper, openai.ChatMessageRoleSystem:
 			var systemPrompt string
 			switch v := msg.Value.(type) {
@@ -342,15 +341,15 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest, an
 			case openai.ChatCompletionDeveloperMessageParam:
 				systemPrompt = extractSystemOrDeveloperPromptFromDeveloper(v)
 			default:
-				return fmt.Errorf("unexpected type for system/developer message: %T", msg.Value)
+				return &anthropic.MessageNewParams{}, fmt.Errorf("unexpected type for system/developer message: %T", msg.Value)
 			}
-			anthropicReq.System = append(anthropicReq.System, anthropic.TextBlockParam{Text: systemPrompt})
+			params.System = append(params.System, anthropic.TextBlockParam{Text: systemPrompt})
 		case openai.ChatMessageRoleTool:
 			toolMsg := msg.Value.(openai.ChatCompletionToolMessageParam)
 			var content []anthropic.ContentBlockParamUnion
 			content, err = openAIToAnthropicContent(toolMsg.Content)
 			if err != nil {
-				return err
+				return &anthropic.MessageNewParams{}, err
 			}
 			var toolContent []anthropic.ToolResultBlockParamContentUnion
 			var trb anthropic.ToolResultBlockParamContentUnion
@@ -374,58 +373,64 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest, an
 					{OfToolResult: &toolResultBlock},
 				},
 			}
-			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
+			params.Messages = append(params.Messages, anthropicMsg)
 		default:
-			return fmt.Errorf("unsupported OpenAI role type: %s", msg.Type)
+			return &anthropic.MessageNewParams{}, fmt.Errorf("unsupported OpenAI role type: %s", msg.Type)
 		}
 	}
-	return nil
+	return params, nil
+}
+
+// buildAnthropicParams is a helper function that translates an OpenAI request
+// into the parameter struct required by the Anthropic SDK.
+func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (*anthropic.MessageNewParams, error) {
+	// Translate openAI contents to anthropic params
+	params, err := openAIMessagesToAnthropicParams(openAIReq)
+	if err != nil {
+		return &anthropic.MessageNewParams{}, err
+	}
+
+	// Handle parameters.
+	// Set default maxTokens if not provided.
+	maxTokens := defaultMaxTokens
+	if openAIReq.MaxCompletionTokens != nil {
+		maxTokens = *openAIReq.MaxCompletionTokens
+	} else if openAIReq.MaxTokens != nil {
+		maxTokens = *openAIReq.MaxTokens
+	}
+	params.MaxTokens = maxTokens
+	if openAIReq.Temperature != nil {
+		if err = validateTemperatureForAnthropic(openAIReq.Temperature); err != nil {
+			return &anthropic.MessageNewParams{}, err
+		}
+		params.Temperature = anthropic.Float(*openAIReq.Temperature)
+	}
+	if openAIReq.TopP != nil {
+		params.TopP = anthropic.Float(*openAIReq.TopP)
+	}
+
+	// Handle stop sequences.
+	stopSequences, err := extractStopSequencesFromPtrSlice(openAIReq.Stop)
+	if err != nil {
+		return &anthropic.MessageNewParams{}, err
+	}
+	if len(stopSequences) > 0 {
+		params.StopSequences = stopSequences
+	}
+
+	return params, nil
 }
 
 // RequestBody implements [Translator.RequestBody] for GCP.
 func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, _ bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
-	// Validate max_tokens/max_completion_tokens is set
-	// TODO: get timeout instead of error here when testing(?)
-	if openAIReq.MaxTokens == nil && openAIReq.MaxCompletionTokens == nil {
-		return nil, nil, fmt.Errorf("max_tokens is required in OpenAI request")
-	}
-
-	anthropicReq := anthropic.MessageNewParams{
-		MaxTokens: *openAIReq.MaxTokens,
-		Model:     anthropic.Model(openAIReq.Model),
-	}
-	// TODO: add tool support
-	// TODO: add tool_choice support
-
-	// 3. Handle optional parameters with type conversion
-	if validateErr := validateTemperatureForAnthropic(openAIReq.Temperature); validateErr != nil {
-		return nil, nil, validateErr
-	}
-	if openAIReq.Temperature != nil {
-		if err := validateTemperatureForAnthropic(openAIReq.Temperature); err != nil {
-			return nil, nil, err
-		}
-		anthropicReq.Temperature = anthropic.Float(*openAIReq.Temperature)
-	}
-	if openAIReq.TopP != nil {
-		anthropicReq.TopP = anthropic.Float(*openAIReq.TopP)
-	}
-	stopSequences, err := extractStopSequencesFromPtrSlice(openAIReq.Stop)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(stopSequences) > 0 {
-		anthropicReq.StopSequences = stopSequences
-	}
-
-	err = openAIMessagesToAnthropicParams(openAIReq, &anthropicReq)
+	params, err := buildAnthropicParams(openAIReq)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	body, err := json.Marshal(anthropicReq)
+	body, err := json.Marshal(params)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -434,20 +439,22 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 	// --- VERTEX AI PATH ---
 	specifier := "rawPredict"
 	if openAIReq.Stream {
-		// Note: Full streaming support is not yet implemented in the response handler.
 		// specifier = "streamRawPredict"
 		return nil, nil, fmt.Errorf("streaming is not yet supported for GCP Anthropic translation")
 	}
 
+	// TODO: remove before merge - use util method
 	model := strings.TrimPrefix(openAIReq.Model, "gcp.")
-	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s", "us-central1", "project-name", "us-central1", "anthropic", model, specifier)
-	// TODO: make this util method
-	// a. Delete the "model" key from the JSON body
-	body, _ = sjson.DeleteBytes(body, "model")
+	region := "us-east5"
+	project := "test-project"
+	publisher := "anthropic"
+	gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s", region, project, region, publisher, model, specifier)
 
 	// b. Set the "anthropic_version" key in the JSON body
+	// Using same logic as anthropic go SDK: https://github.com/anthropics/anthropic-sdk-go/blob/main/vertex/vertex.go#L78
 	body, _ = sjson.SetBytes(body, "anthropic_version", anthropicVersion)
 
+	// TOOD: use util method
 	headerMutation = &extprocv3.HeaderMutation{
 		SetHeaders: []*corev3.HeaderValueOption{
 			{
@@ -468,14 +475,6 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 		Mutation: &extprocv3.BodyMutation_Body{Body: body},
 	}
 	return headerMutation, bodyMutation, nil
-}
-
-// ResponseHeaders implements [Translator.ResponseHeaders].
-func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers map[string]string) (
-	headerMutation *extprocv3.HeaderMutation, err error,
-) {
-	// TODO: Implement if needed.
-	return nil, nil
 }
 
 // ResponseError implements [Translator.ResponseError].
@@ -554,6 +553,14 @@ func anthropicToolUseToOpenAICalls(block anthropic.ContentBlockUnion) ([]openai.
 	})
 
 	return toolCalls, nil
+}
+
+// ResponseHeaders implements [Translator.ResponseHeaders].
+func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers map[string]string) (
+	headerMutation *extprocv3.HeaderMutation, err error,
+) {
+	// TODO: Implement if needed.
+	return nil, nil
 }
 
 // ResponseBody implements [Translator.ResponseBody] for GCP Anthropic.
