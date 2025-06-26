@@ -487,7 +487,7 @@ func TestExchangeJWTForSTSToken_WithoutAuthOption(t *testing.T) {
 	defer server.Close()
 
 	// Define test configuration
-	jwtToken := "test-jwt-token"
+	jwtToken := "test-jwt-token" // #nosec G101
 	wifConfig := aigv1a1.GCPWorkLoadIdentityFederationConfig{
 		ProjectID:                "test-project",
 		WorkloadIdentityPoolName: "test-pool",
@@ -743,7 +743,7 @@ type errorOnCreateClient struct {
 	t *testing.T
 }
 
-func (c *errorOnCreateClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+func (c *errorOnCreateClient) Create(_ context.Context, _ client.Object, _ ...client.CreateOption) error {
 	return fmt.Errorf("create error")
 }
 
@@ -753,11 +753,11 @@ type errorOnUpdateClient struct {
 	t *testing.T
 }
 
-func (c *errorOnUpdateClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+func (c *errorOnUpdateClient) Create(_ context.Context, _ client.Object, _ ...client.CreateOption) error {
 	return nil // Allow create to succeed
 }
 
-func (c *errorOnUpdateClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+func (c *errorOnUpdateClient) Get(_ context.Context, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
 	// Cast to Secret
 	if secret, ok := obj.(*corev1.Secret); ok {
 		secret.Name = key.Name
@@ -775,6 +775,6 @@ func (c *errorOnUpdateClient) Get(ctx context.Context, key client.ObjectKey, obj
 	return nil
 }
 
-func (c *errorOnUpdateClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+func (c *errorOnUpdateClient) Update(_ context.Context, _ client.Object, _ ...client.UpdateOption) error {
 	return fmt.Errorf("update error")
 }
