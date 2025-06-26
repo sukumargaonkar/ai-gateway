@@ -103,6 +103,11 @@ func TestGCPTokenRotator_Rotate(t *testing.T) {
 			expectErrorMsg: "failed to exchange JWT for STS token (project: test-project-id, pool: test-pool-name): fake network failure",
 		},
 		{
+			name:            "failed to get OIDC token",
+			kubeInitObjects: []runtime.Object{oldSecret},
+			expectErrorMsg:  "failed to obtain OIDC token: oidc provider error",
+		},
+		{
 			name:            "failed to impersonate service account",
 			kubeInitObjects: []runtime.Object{oldSecret},
 			saTokenFunc: func(_ context.Context, _ string, _ aigv1a1.GCPServiceAccountImpersonationConfig, _ ...option.ClientOption) (*tokenprovider.TokenExpiry, error) {
@@ -153,6 +158,20 @@ func TestGCPTokenRotator_Rotate(t *testing.T) {
 				}
 			},
 			expectErrorMsg: "update error",
+		},
+		{
+			name:            "secret lookup error (non-NotFound)",
+			kubeInitObjects: []runtime.Object{},
+			clientCreateFn: func(t *testing.T) client.Client {
+				// Create a fake client that returns an error on Get operations
+				fc := fake.NewFakeClient()
+				// Wrap the fake client to return an error on Get
+				return &errorOnGetClient{
+					Client: fc,
+					t:      t,
+				}
+			},
+			expectErrorMsg: "failed to get secret: lookup error",
 		},
 	}
 
@@ -208,9 +227,15 @@ func TestGCPTokenRotator_Rotate(t *testing.T) {
 				backendSecurityPolicyName:      "test-policy",
 				backendSecurityPolicyNamespace: "default",
 				preRotationWindow:              5 * time.Minute,
-				oidcProvider:                   tokenprovider.NewMockTokenProvider(dummyJWTToken, twoHourAfterNow, nil),
 				saTokenFunc:                    tt.saTokenFunc,
 				stsTokenFunc:                   tt.stsTokenFunc,
+			}
+
+			// Set up OIDC provider based on test case
+			if tt.name == "failed to get OIDC token" {
+				rotator.oidcProvider = tokenprovider.NewMockTokenProvider("", time.Time{}, fmt.Errorf("oidc provider error"))
+			} else {
+				rotator.oidcProvider = tokenprovider.NewMockTokenProvider(dummyJWTToken, twoHourAfterNow, nil)
 			}
 
 			expiration, err := rotator.Rotate(context.Background())
@@ -250,23 +275,15 @@ func TestGCPTokenRotator_Rotate(t *testing.T) {
 func TestGCPTokenRotator_GetPreRotationTime(t *testing.T) {
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypes(corev1.SchemeGroupVersion, &corev1.Secret{})
-	fakeKubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-	rotator := &gcpOIDCTokenRotator{
-		client:                         fakeKubeClient,
-		preRotationWindow:              5 * time.Minute,
-		backendSecurityPolicyName:      "test-policy",
-		backendSecurityPolicyNamespace: "default",
-		gcpCredentials:                 aigv1a1.BackendSecurityPolicyGCPCredentials{},
-	}
 
 	now := time.Now()
 
 	tests := []struct {
-		name          string
-		secret        *corev1.Secret
-		expectedTime  time.Time
-		expectedError bool
+		name           string
+		secret         *corev1.Secret
+		expectedTime   time.Time
+		expectedError  bool
+		clientCreateFn func(t *testing.T) client.Client
 	}{
 		{
 			name: "secret annotation missing",
@@ -303,14 +320,42 @@ func TestGCPTokenRotator_GetPreRotationTime(t *testing.T) {
 			expectedTime:  now.Add(2 * time.Hour),
 			expectedError: false,
 		},
+		{
+			name:          "lookup secret error (non-NotFound)",
+			expectedTime:  time.Time{},
+			expectedError: true,
+			clientCreateFn: func(t *testing.T) client.Client {
+				return &errorOnGetClient{
+					Client: fake.NewFakeClient(),
+					t:      t,
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := fakeKubeClient.Create(context.Background(), tt.secret)
-			require.NoError(t, err)
+			var testClient client.Client
 
-			got, err := rotator.GetPreRotationTime(context.Background())
+			// Use custom client if provided, otherwise use default fake client
+			if tt.clientCreateFn != nil {
+				testClient = tt.clientCreateFn(t)
+			} else {
+				testClient = fake.NewClientBuilder().WithScheme(scheme).Build()
+				err := testClient.Create(context.Background(), tt.secret)
+				require.NoError(t, err)
+			}
+
+			// Create rotator with the test client
+			testRotator := &gcpOIDCTokenRotator{
+				client:                         testClient,
+				preRotationWindow:              5 * time.Minute,
+				backendSecurityPolicyName:      "test-policy",
+				backendSecurityPolicyNamespace: "default",
+				gcpCredentials:                 aigv1a1.BackendSecurityPolicyGCPCredentials{},
+			}
+
+			got, err := testRotator.GetPreRotationTime(context.Background())
 			if (err != nil) != tt.expectedError {
 				t.Errorf("GCPTokenRotator.GetPreRotationTime() error = %v, expectedError %v", err, tt.expectedError)
 				return
@@ -318,8 +363,6 @@ func TestGCPTokenRotator_GetPreRotationTime(t *testing.T) {
 			if !tt.expectedTime.IsZero() && got.Compare(tt.expectedTime) >= 0 {
 				t.Errorf("GCPTokenRotator.GetPreRotationTime() = %v, expected %v", got, tt.expectedTime)
 			}
-			err = fakeKubeClient.Delete(context.Background(), tt.secret)
-			require.NoError(t, err)
 		})
 	}
 }
@@ -597,6 +640,19 @@ func TestImpersonateServiceAccount(t *testing.T) {
 			},
 			expectedError: true,
 		},
+		{
+			name:     "credentials creation error",
+			stsToken: "test-sts-token",
+			saConfig: aigv1a1.GCPServiceAccountImpersonationConfig{
+				ServiceAccountName:        "test-service-account",
+				ServiceAccountProjectName: "test-project",
+			},
+			mockResponse: func(_ *http.Request) (*http.Response, error) {
+				// Simulate network error during credential creation
+				return nil, fmt.Errorf("network error during credential creation")
+			},
+			expectedError: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -777,4 +833,14 @@ func (c *errorOnUpdateClient) Get(_ context.Context, key client.ObjectKey, obj c
 
 func (c *errorOnUpdateClient) Update(_ context.Context, _ client.Object, _ ...client.UpdateOption) error {
 	return fmt.Errorf("update error")
+}
+
+// errorOnGetClient is a client that returns an error on Get (for testing lookup failures)
+type errorOnGetClient struct {
+	client.Client
+	t *testing.T
+}
+
+func (c *errorOnGetClient) Get(_ context.Context, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+	return fmt.Errorf("lookup error")
 }
