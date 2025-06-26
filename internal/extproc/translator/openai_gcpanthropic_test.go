@@ -102,7 +102,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+
 			headerMut, bodyMut, err := translator.RequestBody(tc.raw, tc.input, tc.onRetry)
 
 			if tc.wantError {
@@ -158,7 +158,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_ResponseHeaders(t *testi
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+
 			headerMut, err := translator.ResponseHeaders(tc.headers)
 
 			if tc.wantError {
@@ -254,7 +254,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_ResponseBody(t *testing.
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+
 			reader := bytes.NewReader([]byte(tc.body))
 
 			headerMut, bodyMut, tokenUsage, err := translator.ResponseBody(tc.respHeaders, reader, tc.endOfStream)

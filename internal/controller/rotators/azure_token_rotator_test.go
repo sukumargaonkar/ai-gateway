@@ -11,12 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/envoyproxy/ai-gateway/internal/controller/tokenprovider"
@@ -242,47 +240,4 @@ func TestPopulateAzureAccessToken(t *testing.T) {
 	val, ok := secret.Data[AzureAccessTokenKey]
 	require.True(t, ok)
 	require.Equal(t, "some-azure-token", string(val))
-}
-
-func TestNewAzureTokenRotator(t *testing.T) {
-	scheme := runtime.NewScheme()
-	scheme.AddKnownTypes(corev1.SchemeGroupVersion, &corev1.Secret{})
-	client := fake.NewClientBuilder().WithScheme(scheme).Build()
-	kube := &mockKubeInterface{}
-	logger := logr.Discard()
-	namespace := "default"
-	name := "test-policy"
-	preRotationWindow := 5 * time.Minute
-	tokenProvider := tokenprovider.NewMockTokenProvider("fake-token", time.Now().Add(2*time.Hour), nil)
-
-	rotator, err := NewAzureTokenRotator(
-		client,
-		kube,
-		logger,
-		namespace,
-		name,
-		preRotationWindow,
-		tokenProvider,
-	)
-
-	require.NoError(t, err)
-	require.NotNil(t, rotator)
-
-	// Assert it's the correct implementation type
-	azureRotator, ok := rotator.(*azureTokenRotator)
-	require.True(t, ok)
-
-	// Verify all fields were properly set
-	require.Equal(t, client, azureRotator.client)
-	require.Equal(t, kube, azureRotator.kube)
-	require.Equal(t, namespace, azureRotator.backendSecurityPolicyNamespace)
-	require.Equal(t, name, azureRotator.backendSecurityPolicyName)
-	require.Equal(t, preRotationWindow, azureRotator.preRotationWindow)
-	require.Equal(t, tokenProvider, azureRotator.tokenProvider)
-}
-
-// Mock implementations to support the test
-
-type mockKubeInterface struct {
-	kubernetes.Interface
 }

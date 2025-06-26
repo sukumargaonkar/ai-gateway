@@ -92,6 +92,7 @@ func TestGCPTokenRotator_Rotate(t *testing.T) {
 		skipServiceAccountImpersonation bool
 		expectedSecret                  *corev1.Secret
 		expectErrorMsg                  string
+		clientCreateFn                  func(t *testing.T) client.Client
 	}{
 		{
 			name:            "failed to get sts token",
@@ -125,11 +126,53 @@ func TestGCPTokenRotator_Rotate(t *testing.T) {
 			expectedSecret:                  renewedSecretWithoutSAImpersonation,
 			expectErrorMsg:                  "",
 		},
+		{
+			name:            "create error",
+			kubeInitObjects: nil,
+			clientCreateFn: func(t *testing.T) client.Client {
+				// Create a fake client that returns an error on Create
+				fc := fake.NewFakeClient()
+				// Wrap the fake client to return an error on Create
+				return &errorOnCreateClient{
+					Client: fc,
+					t:      t,
+				}
+			},
+			expectErrorMsg: "create error",
+		},
+		{
+			name:            "update error",
+			kubeInitObjects: []runtime.Object{oldSecret},
+			clientCreateFn: func(t *testing.T) client.Client {
+				// Create a fake client that returns an error on Update
+				fc := fake.NewFakeClient()
+				// Wrap the fake client to return an error on Update
+				return &errorOnUpdateClient{
+					Client: fc,
+					t:      t,
+				}
+			},
+			expectErrorMsg: "update error",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fakeClient := fake.NewFakeClient(tt.kubeInitObjects...)
+			var fakeClient client.Client
+
+			// Use custom client if provided, otherwise use default fake client
+			if tt.clientCreateFn != nil {
+				fakeClient = tt.clientCreateFn(t)
+				// Add initial objects to the custom client if needed
+				for _, obj := range tt.kubeInitObjects {
+					if clientObj, ok := obj.(client.Object); ok {
+						err := fakeClient.Create(context.Background(), clientObj)
+						require.NoError(t, err)
+					}
+				}
+			} else {
+				fakeClient = fake.NewFakeClient(tt.kubeInitObjects...)
+			}
 
 			// If no saTokenFunc or stsTokenFunc is provided, use the default mock functions.
 			if tt.saTokenFunc == nil {
@@ -423,6 +466,51 @@ func TestExchangeJWTForSTSToken(t *testing.T) {
 	}
 }
 
+func TestExchangeJWTForSTSToken_WithoutAuthOption(t *testing.T) {
+	// Create a mock server that validates the request has no authentication
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check for absence of authentication headers to validate WithoutAuthentication is working
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" {
+			http.Error(w, "Authorization header should not be present", http.StatusBadRequest)
+			return
+		}
+
+		// Return a successful response
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{
+			"access_token": "test-sts-token",
+			"expires_in": 3600,
+			"token_type": "Bearer"
+		}`)
+	}))
+	defer server.Close()
+
+	// Define test configuration
+	jwtToken := "test-jwt-token"
+	wifConfig := aigv1a1.GCPWorkLoadIdentityFederationConfig{
+		ProjectID:                "test-project",
+		WorkloadIdentityPoolName: "test-pool",
+		WorkloadIdentityProvider: aigv1a1.GCPWorkloadIdentityProvider{
+			Name: "test-provider",
+		},
+	}
+
+	// Call the function with the server URL as the endpoint
+	ctx := context.Background()
+	tokenExpiry, err := exchangeJWTForSTSToken(ctx, jwtToken, wifConfig, option.WithEndpoint(server.URL))
+
+	// Verify the results
+	require.NoError(t, err)
+	require.NotNil(t, tokenExpiry)
+	require.Equal(t, "test-sts-token", tokenExpiry.Token)
+
+	// Verify the expiration time is about an hour from now
+	expectedExpiryTime := time.Now().Add(time.Hour)
+	timeDiff := tokenExpiry.ExpiresAt.Sub(expectedExpiryTime)
+	require.Less(t, timeDiff.Abs(), time.Second*5, "Expiry time should be close to expected value")
+}
+
 // roundTripperFunc implements http.RoundTripper interface for custom response handling
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
@@ -647,4 +735,46 @@ func TestNewGCPOIDCTokenRotator(t *testing.T) {
 			}
 		})
 	}
+}
+
+// errorOnCreateClient is a client that returns an error on Create
+type errorOnCreateClient struct {
+	client.Client
+	t *testing.T
+}
+
+func (c *errorOnCreateClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	return fmt.Errorf("create error")
+}
+
+// errorOnUpdateClient is a client that returns an error on Update
+type errorOnUpdateClient struct {
+	client.Client
+	t *testing.T
+}
+
+func (c *errorOnUpdateClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	return nil // Allow create to succeed
+}
+
+func (c *errorOnUpdateClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	// Cast to Secret
+	if secret, ok := obj.(*corev1.Secret); ok {
+		secret.Name = key.Name
+		secret.Namespace = key.Namespace
+		secret.Data = map[string][]byte{
+			GCPProjectNameKey: []byte(dummyProjectName),
+			GCPRegionKey:      []byte(dummyProjectRegion),
+			GCPAccessTokenKey: []byte(oldGCPAccessToken),
+		}
+		secret.Annotations = map[string]string{
+			ExpirationTimeAnnotationKey: time.Now().Format(time.RFC3339),
+		}
+		return nil
+	}
+	return nil
+}
+
+func (c *errorOnUpdateClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	return fmt.Errorf("update error")
 }
