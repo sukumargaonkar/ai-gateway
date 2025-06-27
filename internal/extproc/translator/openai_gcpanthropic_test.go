@@ -18,11 +18,12 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+const claudeTestModel = "claude-3-opus-20240229"
+
 func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T) {
 	// Define a common input request to use for both standard and vertex tests.
-	claudeOpusModel := "claude-3-opus-20240229"
 	openAIReq := &openai.ChatCompletionRequest{
-		Model: claudeOpusModel,
+		Model: claudeTestModel,
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			{
 				Type:  openai.ChatMessageRoleSystem,
@@ -37,31 +38,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		Temperature: ptr.To(0.7),
 	}
 
-	// Subtest for the standard Anthropic API endpoint
-	t.Run("Standard Anthropic API", func(t *testing.T) {
-		translator := NewChatCompletionOpenAIToAnthropicTranslator() // No options
-		hm, bm, err := translator.RequestBody(nil, openAIReq, false)
-		require.NoError(t, err)
-		require.NotNil(t, hm)
-		require.NotNil(t, bm)
-
-		// Check the path header
-		pathHeader := hm.SetHeaders[0]
-		require.Equal(t, ":path", pathHeader.Header.Key)
-		require.Equal(t, fmt.Sprintf("/models/%s:rawPredict", openAIReq.Model), string(pathHeader.Header.RawValue))
-
-		// Check the body content
-		body := bm.GetBody()
-		require.NotNil(t, body)
-		// Anthropic version should be present
-		require.True(t, gjson.GetBytes(body, "anthropic_version").Exists())
-	})
-
-	// TOOD: update
-	// Sub-test for the Vertex AI endpoint
 	t.Run("Vertex Values Configured Correctly", func(t *testing.T) {
-
-		// Create the translator with the VertexAI option
 		translator := NewChatCompletionOpenAIToAnthropicTranslator()
 		hm, bm, err := translator.RequestBody(nil, openAIReq, false)
 		require.NoError(t, err)
@@ -79,14 +56,94 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		require.NotNil(t, body)
 		// Model should NOT be present in the body
 		require.False(t, gjson.GetBytes(body, "model").Exists())
-		// Anthropic version SHOULD be present
+		// Anthropic version should be present
 		require.Equal(t, anthropicVersion, gjson.GetBytes(body, "anthropic_version").String())
+	})
+
+	t.Run("Image Content Request", func(t *testing.T) {
+		imageReq := &openai.ChatCompletionRequest{
+			Model: "claude-3-opus-20240229",
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleUser,
+					Value: openai.ChatCompletionUserMessageParam{
+						Content: openai.StringOrUserRoleContentUnion{
+							Value: []openai.ChatCompletionContentPartUserUnionParam{
+								{TextContent: &openai.ChatCompletionContentPartTextParam{Text: "What is in this image?"}},
+								{ImageContent: &openai.ChatCompletionContentPartImageParam{
+									ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
+										URL: "data:image/jpeg;base64,dGVzdA==", // "test" in base64
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+		}
+		translator := NewChatCompletionOpenAIToAnthropicTranslator()
+		_, bm, err := translator.RequestBody(nil, imageReq, false)
+		require.NoError(t, err)
+		body := bm.GetBody()
+		imageBlock := gjson.GetBytes(body, "messages.0.content.1")
+		require.Equal(t, "image", imageBlock.Get("type").String())
+		require.Equal(t, "base64", imageBlock.Get("source.type").String())
+		require.Equal(t, "image/jpeg", imageBlock.Get("source.media_type").String())
+		require.Equal(t, "dGVzdA==", imageBlock.Get("source.data").String())
+	})
+
+	t.Run("Multiple System Prompts Concatenated", func(t *testing.T) {
+		firstMsg := "First system prompt."
+		secondMsg := "Second developer prompt."
+		thirdMsg := "Hello!"
+		multiSystemReq := &openai.ChatCompletionRequest{
+			Model: claudeTestModel,
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				{Type: openai.ChatMessageRoleSystem, Value: openai.ChatCompletionSystemMessageParam{Content: openai.StringOrArray{Value: firstMsg}}},
+				{Type: openai.ChatMessageRoleDeveloper, Value: openai.ChatCompletionDeveloperMessageParam{Content: openai.StringOrArray{Value: secondMsg}}},
+				{Type: openai.ChatMessageRoleUser, Value: openai.ChatCompletionUserMessageParam{Content: openai.StringOrUserRoleContentUnion{Value: thirdMsg}}},
+			},
+			MaxTokens: ptr.To(int64(100)),
+		}
+		translator := NewChatCompletionOpenAIToAnthropicTranslator()
+		_, bm, err := translator.RequestBody(nil, multiSystemReq, false)
+		require.NoError(t, err)
+		body := bm.GetBody()
+		require.Equal(t, firstMsg, gjson.GetBytes(body, "system.0.text").String())
+		require.Equal(t, secondMsg, gjson.GetBytes(body, "system.1.text").String())
+		require.Equal(t, thirdMsg, gjson.GetBytes(body, "messages.0.content.0.text").String())
+	})
+
+	t.Run("Streaming Request Error", func(t *testing.T) {
+		streamReq := &openai.ChatCompletionRequest{
+			Model:     claudeTestModel,
+			Messages:  []openai.ChatCompletionMessageParamUnion{},
+			MaxTokens: ptr.To(int64(100)),
+			Stream:    true,
+		}
+		translator := NewChatCompletionOpenAIToAnthropicTranslator()
+		_, _, err := translator.RequestBody(nil, streamReq, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), streamingNotSupportedError)
+	})
+
+	t.Run("Invalid Temperature", func(t *testing.T) {
+		invalidTempReq := &openai.ChatCompletionRequest{
+			Model:       claudeTestModel,
+			Messages:    []openai.ChatCompletionMessageParamUnion{},
+			MaxTokens:   ptr.To(int64(100)),
+			Temperature: ptr.To(2.5),
+		}
+		translator := NewChatCompletionOpenAIToAnthropicTranslator()
+		_, _, err := translator.RequestBody(nil, invalidTempReq, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), fmt.Sprintf(tempNotSupportedError, *invalidTempReq.Temperature))
 	})
 
 	// Test for missing required parameter
 	t.Run("Missing MaxTokens Uses Default", func(t *testing.T) {
 		missingTokensReq := &openai.ChatCompletionRequest{
-			Model:     "claude-3",
+			Model:     claudeTestModel,
 			Messages:  []openai.ChatCompletionMessageParamUnion{},
 			MaxTokens: nil, // Missing
 		}
@@ -288,4 +345,25 @@ func TestOpenAIToGCPAnthropicTranslator_ResponseError(t *testing.T) {
 			}
 		})
 	}
+}
+
+// New test function for helper coverage
+func TestHelperFunctions(t *testing.T) {
+	t.Run("anthropicToOpenAIFinishReason invalid reason", func(t *testing.T) {
+		_, err := anthropicToOpenAIFinishReason("unknown_reason")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "received invalid stop reason")
+	})
+
+	t.Run("anthropicRoleToOpenAIRole invalid role", func(t *testing.T) {
+		_, err := anthropicRoleToOpenAIRole("unknown_role")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid anthropic role")
+	})
+
+	t.Run("extractStopSequencesFromPtrSlice with nil", func(t *testing.T) {
+		_, err := extractStopSequencesFromPtrSlice([]*string{ptr.To("a"), nil, ptr.To("b")})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "contains nil value")
+	})
 }

@@ -194,7 +194,6 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessRequestBody(ctx context.C
 
 	headerMutation, bodyMutation, err := c.translator.RequestBody(c.originalRequestBodyRaw, c.originalRequestBody, c.onRetry)
 	if err != nil {
-		// TODO: should return HTTP error(?)
 		return nil, fmt.Errorf("failed to transform request: %w", err)
 	}
 	if headerMutation == nil {

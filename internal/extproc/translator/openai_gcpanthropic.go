@@ -26,9 +26,11 @@ import (
 
 // currently a requirement for GCP Vertex / Anthropic API https://docs.anthropic.com/en/api/claude-on-vertex-ai
 const (
-	anthropicVersion = "vertex-2023-10-16"
-	gcpBackendError  = "GCPBackendError"
-	defaultMaxTokens = int64(100)
+	anthropicVersion           = "vertex-2023-10-16"
+	gcpBackendError            = "GCPBackendError"
+	defaultMaxTokens           = int64(100)
+	streamingNotSupportedError = "streaming is not yet supported for GCP Anthropic translation"
+	tempNotSupportedError      = "temperature %.2f is not supported by Anthropic (must be between 0.0 and 1.0)"
 )
 
 // openAIToAnthropicTranslatorV1ChatCompletion where we can store information for streaming requests
@@ -75,7 +77,7 @@ func validateTemperatureForAnthropic(temp *float64) error {
 		return nil
 	}
 	if *temp > 1.0 {
-		return fmt.Errorf("temperature %.2f is not supported by Anthropic (must be between 0.0 and 1.0)", *temp)
+		return fmt.Errorf(tempNotSupportedError, *temp)
 	}
 	return nil
 }
@@ -265,7 +267,6 @@ func anthropicRoleToOpenAIRole(role anthropic.MessageParamRole) (string, error) 
 // The tool_use content is appended to the Anthropic message content list if tool_calls are present.
 func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatCompletionAssistantMessageParam) (*anthropic.MessageParam, error) {
 	contentBlocks := make([]anthropic.ContentBlockParamUnion, 0)
-	// Handle text/refusal content
 	if v, ok := openAiMessage.Content.Value.(string); ok && len(v) > 0 {
 		contentBlocks = append(contentBlocks, anthropic.NewTextBlock(v))
 	} else if content, ok := openAiMessage.Content.Value.(openai.ChatCompletionAssistantMessageParamContent); ok {
@@ -307,11 +308,20 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 // openAIMessagesToAnthropicParams converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic
 func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anthropic.MessageNewParams, err error) {
 	params = &anthropic.MessageNewParams{}
-	params.Messages = make([]anthropic.MessageParam, 0, len(openAIReq.Messages))
+	var systemBlocks []anthropic.TextBlockParam
+	var anthropicMessages []anthropic.MessageParam
 
 	for i := range openAIReq.Messages {
 		msg := &openAIReq.Messages[i]
 		switch msg.Type {
+		case openai.ChatMessageRoleSystem:
+			if param, ok := msg.Value.(openai.ChatCompletionSystemMessageParam); ok {
+				systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: extractSystemOrDeveloperPromptFromSystem(param)})
+			}
+		case openai.ChatMessageRoleDeveloper:
+			if param, ok := msg.Value.(openai.ChatCompletionDeveloperMessageParam); ok {
+				systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: extractSystemOrDeveloperPromptFromDeveloper(param)})
+			}
 		case openai.ChatMessageRoleUser:
 			message := msg.Value.(openai.ChatCompletionUserMessageParam)
 			var content []anthropic.ContentBlockParamUnion
@@ -323,7 +333,7 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (p
 				Role:    anthropic.MessageParamRoleUser,
 				Content: content,
 			}
-			params.Messages = append(params.Messages, anthropicMsg)
+			anthropicMessages = append(anthropicMessages, anthropicMsg)
 		case openai.ChatMessageRoleAssistant:
 			assistantMessage := msg.Value.(openai.ChatCompletionAssistantMessageParam)
 
@@ -333,18 +343,7 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (p
 				return &anthropic.MessageNewParams{}, err
 			}
 			// TODO: check works with multi tool
-			params.Messages = append(params.Messages, *messages)
-		case openai.ChatMessageRoleDeveloper, openai.ChatMessageRoleSystem:
-			var systemPrompt string
-			switch v := msg.Value.(type) {
-			case openai.ChatCompletionSystemMessageParam:
-				systemPrompt = extractSystemOrDeveloperPromptFromSystem(v)
-			case openai.ChatCompletionDeveloperMessageParam:
-				systemPrompt = extractSystemOrDeveloperPromptFromDeveloper(v)
-			default:
-				return &anthropic.MessageNewParams{}, fmt.Errorf("unexpected type for system/developer message: %T", msg.Value)
-			}
-			params.System = append(params.System, anthropic.TextBlockParam{Text: systemPrompt})
+			anthropicMessages = append(anthropicMessages, *messages)
 		case openai.ChatMessageRoleTool:
 			toolMsg := msg.Value.(openai.ChatCompletionToolMessageParam)
 			var content []anthropic.ContentBlockParamUnion
@@ -374,11 +373,17 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (p
 					{OfToolResult: &toolResultBlock},
 				},
 			}
-			params.Messages = append(params.Messages, anthropicMsg)
+			anthropicMessages = append(anthropicMessages, anthropicMsg)
 		default:
 			return &anthropic.MessageNewParams{}, fmt.Errorf("unsupported OpenAI role type: %s", msg.Type)
 		}
 	}
+
+	params.Messages = anthropicMessages
+	if len(systemBlocks) > 0 {
+		params.System = systemBlocks
+	}
+
 	return params, nil
 }
 
@@ -422,6 +427,10 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (*anthropic.M
 	return params, nil
 }
 
+func getGCPPath(model, specifier string) string {
+	return fmt.Sprintf("/models/%s:%s", model, specifier)
+}
+
 // RequestBody implements [Translator.RequestBody] for GCP.
 func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, _ bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
@@ -441,7 +450,7 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 	specifier := "rawPredict"
 	if openAIReq.Stream {
 		// specifier = "streamRawPredict"
-		return nil, nil, fmt.Errorf("streaming is not yet supported for GCP Anthropic translation")
+		return nil, nil, fmt.Errorf(streamingNotSupportedError)
 	}
 
 	// TODO: remove before merge - use util method
@@ -449,7 +458,7 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 	//region := "us-east5"
 	//project := "test-project"
 	//publisher := "anthropic"
-	gcpPath := fmt.Sprintf("/models/%s:%s", model, specifier)
+	gcpPath := getGCPPath(model, specifier)
 	//gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s", region, project, region, publisher, model, specifier)
 
 	// b. Set the "anthropic_version" key in the JSON body
