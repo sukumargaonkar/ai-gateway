@@ -10,7 +10,6 @@ package translator
 
 import (
 	"io"
-	"strings"
 
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 
@@ -32,7 +31,6 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 ) {
 	_ = onRetry
 	model := openAIReq.Model
-	model = strings.TrimPrefix(model, "gcp.")
 	pathSuffix := buildGCPModelPathSuffix(GCPModelPublisherAnthropic, model, GCPMethodGenerateContent)
 
 	// TODO: Implement actual translation from OpenAI to Anthropic request.

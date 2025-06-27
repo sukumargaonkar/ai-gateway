@@ -19,7 +19,7 @@ import (
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
-func TestOpenAIToGCPGeminiTranslatorV1ChatCompletion_RequestBody(t *testing.T) {
+func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_RequestBody(t *testing.T) {
 	tests := []struct {
 		name          string
 		input         openai.ChatCompletionRequest
@@ -69,7 +69,7 @@ func TestOpenAIToGCPGeminiTranslatorV1ChatCompletion_RequestBody(t *testing.T) {
 		},
 	}
 
-	translator := NewChatCompletionOpenAIToGCPGeminiTranslator()
+	translator := NewChatCompletionOpenAIToGCPVertexAITranslator()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			headerMut, bodyMut, err := translator.RequestBody(nil, &tc.input, tc.onRetry)
@@ -90,7 +90,7 @@ func TestOpenAIToGCPGeminiTranslatorV1ChatCompletion_RequestBody(t *testing.T) {
 	}
 }
 
-func TestOpenAIToGCPGeminiTranslatorV1ChatCompletion_ResponseHeaders(t *testing.T) {
+func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_ResponseHeaders(t *testing.T) {
 	tests := []struct {
 		name          string
 		headers       map[string]string
@@ -108,7 +108,7 @@ func TestOpenAIToGCPGeminiTranslatorV1ChatCompletion_ResponseHeaders(t *testing.
 		// TODO: Add more test cases when implementation is ready
 	}
 
-	translator := NewChatCompletionOpenAIToGCPGeminiTranslator()
+	translator := NewChatCompletionOpenAIToGCPVertexAITranslator()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			headerMut, err := translator.ResponseHeaders(tc.headers)
@@ -125,7 +125,7 @@ func TestOpenAIToGCPGeminiTranslatorV1ChatCompletion_ResponseHeaders(t *testing.
 	}
 }
 
-func TestOpenAIToGCPGeminiTranslatorV1ChatCompletion_ResponseBody(t *testing.T) {
+func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_ResponseBody(t *testing.T) {
 	tests := []struct {
 		name           string
 		respHeaders    map[string]string
@@ -212,7 +212,7 @@ func TestOpenAIToGCPGeminiTranslatorV1ChatCompletion_ResponseBody(t *testing.T) 
 		},
 	}
 
-	translator := NewChatCompletionOpenAIToGCPGeminiTranslator()
+	translator := NewChatCompletionOpenAIToGCPVertexAITranslator()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			reader := bytes.NewReader([]byte(tc.body))

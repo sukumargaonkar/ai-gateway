@@ -17,6 +17,7 @@ const (
 	GCPModelPublisherGoogle    = "google"
 	GCPModelPublisherAnthropic = "anthropic"
 	GCPMethodGenerateContent   = "generateContent"
+	HTTPHeaderKeyContentLength = "content-length"
 )
 
 func buildGCPModelPathSuffix(publisher, model, gcpMethod string) string {
@@ -46,7 +47,7 @@ func buildGCPRequestMutations(path string, reqBody []byte) (*ext_procv3.HeaderMu
 		// Set the "content-length" header
 		headerMutation.SetHeaders = append(headerMutation.SetHeaders, &corev3.HeaderValueOption{
 			Header: &corev3.HeaderValue{
-				Key:      "content-length",
+				Key:      HTTPHeaderKeyContentLength,
 				RawValue: []byte(strconv.Itoa(len(reqBody))),
 			},
 		})

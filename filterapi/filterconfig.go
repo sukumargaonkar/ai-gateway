@@ -143,9 +143,9 @@ const (
 	APISchemaAWSBedrock APISchemaName = "AWSBedrock"
 	// APISchemaAzureOpenAI represents the Azure OpenAI API schema.
 	APISchemaAzureOpenAI APISchemaName = "AzureOpenAI"
-	// APISchemaGCPGemini represents the Google Cloud Gemini API schema.
+	// APISchemaGCPVertexAI represents the Google Cloud Gemini API schema.
 	// Used for Gemini models hosted on Google Cloud Vertex AI.
-	APISchemaGCPGemini APISchemaName = "GCPGemini"
+	APISchemaGCPVertexAI APISchemaName = "GCPVertexAI"
 	// APISchemaGCPAnthropic represents the Google Cloud Anthropic API schema.
 	// Used for Claude models hosted on Google Cloud Vertex AI.
 	APISchemaGCPAnthropic APISchemaName = "GCPAnthropic"
