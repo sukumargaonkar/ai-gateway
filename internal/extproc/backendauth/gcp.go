@@ -7,18 +7,15 @@ package backendauth
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"strings"
-	"text/template"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 
 	"github.com/envoyproxy/ai-gateway/filterapi"
-	"github.com/envoyproxy/ai-gateway/internal/extproc/translator"
 )
 
 type gcpHandler struct {
@@ -54,20 +51,25 @@ func newGCPHandler(gcpAuth *filterapi.GCPAuth) (Handler, error) {
 
 // Do implements [Handler.Do].
 //
-// Extracts the azure access token from the local file and set it as an authorization header.
-func (g *gcpHandler) Do(_ context.Context, requestHeaders map[string]string, headerMut *extprocv3.HeaderMutation, _ *extprocv3.BodyMutation) error {
-	gcpReqPathTemplate := requestHeaders[":path"]
-	parsedPath, err := template.New("pathTemplate").Parse(gcpReqPathTemplate)
-	if err != nil {
-		return fmt.Errorf("invalid request path '%s'. expected placeholders for gcpRegion and gcpProjectName. Error: %w", gcpReqPathTemplate, err)
-	}
-	reqPath := bytes.Buffer{}
-	data := map[string]string{
-		translator.GCPRegionTemplateKey:  g.region,
-		translator.GCPProjectTemplateKey: g.projectName,
-	}
-	if err = parsedPath.Execute(&reqPath, data); err != nil {
-		return fmt.Errorf("failed to evaluate request path '%s': %w", gcpReqPathTemplate, err)
+// It modifies the request headers to include the GCP API path and the Authorization header with the GCP access token.
+func (g *gcpHandler) Do(_ context.Context, _ map[string]string, headerMut *extprocv3.HeaderMutation, _ *extprocv3.BodyMutation) error {
+	// The GCP API path is built in two parts: a prefix generated here,
+	// and a suffix provided by translator.requestBody via the ":path" header in headerMut.
+	// We combine the prefix with suffix and update the header in headerMut.
+	prefixPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s", g.region, g.projectName, g.region)
+	for _, hdr := range headerMut.SetHeaders {
+		if hdr.Header != nil && hdr.Header.Key == ":path" {
+			if len(hdr.Header.Value) > 0 {
+				suffixPath := hdr.Header.Value
+				hdr.Header.Value = fmt.Sprintf("%s/%s", prefixPath, suffixPath)
+			}
+			if len(hdr.Header.RawValue) > 0 {
+				suffixPath := string(hdr.Header.RawValue)
+				path := fmt.Sprintf("%s/%s", prefixPath, suffixPath)
+				hdr.Header.RawValue = []byte(path)
+			}
+			break
+		}
 	}
 
 	headerMut.SetHeaders = append(
@@ -76,12 +78,6 @@ func (g *gcpHandler) Do(_ context.Context, requestHeaders map[string]string, hea
 			Header: &corev3.HeaderValue{
 				Key:      "Authorization",
 				RawValue: []byte(fmt.Sprintf("Bearer %s", g.gcpAccessToken)),
-			},
-		},
-		&corev3.HeaderValueOption{
-			Header: &corev3.HeaderValue{
-				Key:      ":path",
-				RawValue: reqPath.Bytes(),
 			},
 		},
 	)

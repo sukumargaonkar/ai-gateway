@@ -9,6 +9,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"regexp"
+	"strconv"
+
+	"github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	"github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
 const (
@@ -35,4 +39,33 @@ func parseDataURI(uri string) (string, []byte, error) {
 		return "", nil, err
 	}
 	return contentType, bin, nil
+}
+
+// buildGCPRequestMutations creates header and body mutations for GCP requests
+// It sets the ":path" header, the "content-length" header and the request body.
+func buildGCPRequestMutations(path string, reqBody []byte) (*ext_procv3.HeaderMutation, *ext_procv3.BodyMutation) {
+	// Create header mutation
+	headerMutation := &ext_procv3.HeaderMutation{
+		SetHeaders: []*corev3.HeaderValueOption{
+			{
+				Header: &corev3.HeaderValue{
+					Key:      ":path",
+					RawValue: []byte(path),
+				},
+			},
+			{
+				Header: &corev3.HeaderValue{
+					Key:      "content-length",
+					RawValue: []byte(strconv.Itoa(len(reqBody))),
+				},
+			},
+		},
+	}
+
+	// Create body mutation
+	bodyMutation := &ext_procv3.BodyMutation{
+		Mutation: &ext_procv3.BodyMutation_Body{Body: reqBody},
+	}
+
+	return headerMutation, bodyMutation
 }

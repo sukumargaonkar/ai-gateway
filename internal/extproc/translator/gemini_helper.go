@@ -18,6 +18,14 @@ import (
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
+const (
+	// GCPModelPublisherGoogle is using by Gemini model family.
+	GCPModelPublisherGoogle = "google"
+	// GCPModelPublisherAnthropic is using by Calude model family
+	GCPModelPublisherAnthropic = "anthropic"
+	GCPMethodGenerateContent   = "generateContent"
+)
+
 // -------------------------------------------------------------
 // Request Conversion Helper for OpenAI to GCP Gemini Translator
 // -------------------------------------------------------------
@@ -480,4 +488,9 @@ func toLogprobs(logprobsResult genai.LogprobsResult) openai.ChatCompletionChoice
 	return openai.ChatCompletionChoicesLogprobs{
 		Content: content,
 	}
+}
+
+func buildGCPModelPathSuffix(publisher, model, gcpMethod string) string {
+	pathSuffix := fmt.Sprintf("publishers/%s/models/%s:%s", publisher, model, gcpMethod)
+	return pathSuffix
 }
