@@ -73,10 +73,7 @@ func anthropicToOpenAIFinishReason(stopReason anthropic.StopReason) (openai.Chat
 // validateTemperatureForAnthropic checks if the temperature is within Anthropic's supported range (0.0 to 1.0).
 // Returns an error if the value is greater than 1.0.
 func validateTemperatureForAnthropic(temp *float64) error {
-	if temp == nil {
-		return nil
-	}
-	if *temp > 1.0 {
+	if temp != nil && *temp > 1.0 {
 		return fmt.Errorf(tempNotSupportedError, *temp)
 	}
 	return nil
