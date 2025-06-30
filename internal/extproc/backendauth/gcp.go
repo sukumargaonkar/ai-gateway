@@ -20,6 +20,8 @@ import (
 
 type gcpHandler struct {
 	gcpAccessToken string
+	region         string
+	projectName    string
 }
 
 func newGCPHandler(gcpAuth *filterapi.GCPAuth) (Handler, error) {
@@ -42,16 +44,43 @@ func newGCPHandler(gcpAuth *filterapi.GCPAuth) (Handler, error) {
 
 	return &gcpHandler{
 		gcpAccessToken: accessToken,
+		region:         gcpAuth.Region,
+		projectName:    gcpAuth.ProjectName,
 	}, nil
 }
 
 // Do implements [Handler.Do].
 //
-// Extracts the azure access token from the local file and set it as an authorization header.
-func (g *gcpHandler) Do(_ context.Context, requestHeaders map[string]string, headerMut *extprocv3.HeaderMutation, _ *extprocv3.BodyMutation) error {
-	requestHeaders["Authorization"] = fmt.Sprintf("Bearer %s", g.gcpAccessToken)
-	headerMut.SetHeaders = append(headerMut.SetHeaders, &corev3.HeaderValueOption{
-		Header: &corev3.HeaderValue{Key: "Authorization", RawValue: []byte(requestHeaders["Authorization"])},
-	})
+// It modifies the request headers to include the GCP API path and the Authorization header with the GCP access token.
+func (g *gcpHandler) Do(_ context.Context, _ map[string]string, headerMut *extprocv3.HeaderMutation, _ *extprocv3.BodyMutation) error {
+	// The GCP API path is built in two parts: a prefix generated here,
+	// and a suffix provided by translator.requestBody via the ":path" header in headerMut.
+	// We combine the prefix with suffix and update the header in headerMut.
+	prefixPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s", g.region, g.projectName, g.region)
+	for _, hdr := range headerMut.SetHeaders {
+		if hdr.Header != nil && hdr.Header.Key == ":path" {
+			if len(hdr.Header.Value) > 0 {
+				suffixPath := hdr.Header.Value
+				hdr.Header.Value = fmt.Sprintf("%s/%s", prefixPath, suffixPath)
+			}
+			if len(hdr.Header.RawValue) > 0 {
+				suffixPath := string(hdr.Header.RawValue)
+				path := fmt.Sprintf("%s/%s", prefixPath, suffixPath)
+				hdr.Header.RawValue = []byte(path)
+			}
+			break
+		}
+	}
+
+	headerMut.SetHeaders = append(
+		headerMut.SetHeaders,
+		&corev3.HeaderValueOption{
+			Header: &corev3.HeaderValue{
+				Key:      "Authorization",
+				RawValue: []byte(fmt.Sprintf("Bearer %s", g.gcpAccessToken)),
+			},
+		},
+	)
+
 	return nil
 }

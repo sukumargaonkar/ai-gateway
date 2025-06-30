@@ -29,11 +29,11 @@ import (
 const (
 	// gcpAccessTokenKey is the key used to store GCP access token in Kubernetes secrets.
 	gcpAccessTokenKey      = "gcpAccessToken"
-	grantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange"
-	gcpIAMScope            = "https://www.googleapis.com/auth/iam"
-	tokenTypeAccessToken   = "urn:ietf:params:oauth:token-type:access_token"
-	tokenTypeJWT           = "urn:ietf:params:oauth:token-type:jwt"
-	stsTokenScope          = "https://www.googleapis.com/auth/cloud-platform"
+	grantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange" // nolint:gosec
+	gcpIAMScope            = "https://www.googleapis.com/auth/iam"             // nolint:gosec
+	tokenTypeAccessToken   = "urn:ietf:params:oauth:token-type:access_token"   // nolint:gosec
+	tokenTypeJWT           = "urn:ietf:params:oauth:token-type:jwt"            // nolint:gosec
+	stsTokenScope          = "https://www.googleapis.com/auth/cloud-platform"  // nolint:gosec
 )
 
 // gcpOIDCTokenRotator implements Rotator interface for GCP access token exchange.
@@ -70,7 +70,7 @@ func NewGCPOIDCTokenRotator(
 		return nil, fmt.Errorf("invalid backend security policy, gcp credentials cannot be nil")
 	}
 
-	oidcConfig := bsp.Spec.GCPCredentials.WorkLoadIdentityFederationConfig.WorkloadIdentityProvider.OIDCConfig.OIDC
+	oidcConfig := bsp.Spec.GCPCredentials.WorkLoadIdentityFederationConfig.WorkloadIdentityProvider.OIDCProvider.OIDC
 	oidcProvider, err := tokenprovider.NewOidcTokenProvider(ctx, client, &oidcConfig)
 	if err != nil {
 		logger.Error(err, "failed to construct oidc provider")
@@ -117,7 +117,7 @@ func (r *gcpOIDCTokenRotator) Rotate(ctx context.Context) (time.Time, error) {
 
 	r.logger.Info("start rotating gcp access token", "namespace", r.backendSecurityPolicyNamespace, "name", r.backendSecurityPolicyName)
 
-	// 1. Get OIDCConfig Token
+	// 1. Get OIDCProvider Token
 	oidcTokenExpiry, err := r.oidcProvider.GetToken(ctx)
 	if err != nil {
 		r.logger.Error(err, "failed to get token from oidc provider", "oidcIssuer", r.gcpCredentials.WorkLoadIdentityFederationConfig.WorkloadIdentityProvider.Name)

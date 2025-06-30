@@ -20,6 +20,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/tidwall/sjson"
 )
@@ -512,7 +513,6 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseError(respHeaders 
 	setContentLength(headerMutation, mut.Body)
 	bodyMutation = &extprocv3.BodyMutation{Mutation: mut}
 
-	// On successful translation of an error, return err = nil.
 	return headerMutation, bodyMutation, nil
 }
 
@@ -543,6 +543,7 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers ma
 	headerMutation *extprocv3.HeaderMutation, err error,
 ) {
 	// TODO: Implement if needed.
+	_ = headers
 	return nil, nil
 }
 

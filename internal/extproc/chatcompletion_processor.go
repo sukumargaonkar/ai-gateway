@@ -277,6 +277,11 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 	}
 	headerMutation.RemoveHeaders = append(headerMutation.RemoveHeaders, removeHeaders...)
 
+	if headerMutation == nil {
+		headerMutation = &extprocv3.HeaderMutation{}
+	}
+	headerMutation.RemoveHeaders = append(headerMutation.RemoveHeaders, removeHeaders...)
+
 	resp := &extprocv3.ProcessingResponse{
 		Response: &extprocv3.ProcessingResponse_ResponseBody{
 			ResponseBody: &extprocv3.BodyResponse{

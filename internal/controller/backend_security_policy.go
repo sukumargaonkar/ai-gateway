@@ -149,7 +149,7 @@ func (c *BackendSecurityPolicyController) rotateCredential(ctx context.Context, 
 				return ctrl.Result{}, err
 			}
 		} else {
-			c.logger.Info("Skipping GCP OIDCConfig credentials rotation, OIDCConfig is not set on BackendSecurityPolicy.Spec")
+			c.logger.Info("Skipping GCP OIDCProvider credentials rotation, OIDCProvider is not set on BackendSecurityPolicy.Spec")
 			return ctrl.Result{}, nil
 		}
 
@@ -205,7 +205,7 @@ func getBackendSecurityPolicyAuthOIDC(spec aigv1a1.BackendSecurityPolicySpec) *e
 		return nil
 	case aigv1a1.BackendSecurityPolicyTypeGCPCredentials:
 		if spec.GCPCredentials != nil {
-			return &spec.GCPCredentials.WorkLoadIdentityFederationConfig.WorkloadIdentityProvider.OIDCConfig.OIDC
+			return &spec.GCPCredentials.WorkLoadIdentityFederationConfig.WorkloadIdentityProvider.OIDCProvider.OIDC
 		}
 	}
 	return nil
