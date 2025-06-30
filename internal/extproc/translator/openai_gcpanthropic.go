@@ -18,8 +18,6 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
-	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/tidwall/sjson"
 )
@@ -417,36 +415,13 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 
 	// TODO: remove before merge - use util method
 	model := strings.TrimPrefix(openAIReq.Model, "gcp.")
-	//region := "us-east5"
-	//project := "test-project"
-	//publisher := "anthropic"
 	gcpPath := getGCPPath(model, specifier)
-	//gcpReqPath := fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s", region, project, region, publisher, model, specifier)
 
 	// b. Set the "anthropic_version" key in the JSON body
 	// Using same logic as anthropic go SDK: https://github.com/anthropics/anthropic-sdk-go/blob/main/vertex/vertex.go#L78
 	body, _ = sjson.SetBytes(body, "anthropic_version", anthropicVersion)
 
-	// TOOD: use util method
-	headerMutation = &extprocv3.HeaderMutation{
-		SetHeaders: []*corev3.HeaderValueOption{
-			{
-				Header: &corev3.HeaderValue{
-					Key:      ":path",
-					RawValue: []byte(gcpPath),
-				},
-			},
-			{
-				Header: &corev3.HeaderValue{
-					Key:      "content-length",
-					RawValue: []byte(strconv.Itoa(len(body))),
-				},
-			},
-		},
-	}
-	bodyMutation = &extprocv3.BodyMutation{
-		Mutation: &extprocv3.BodyMutation_Body{Body: body},
-	}
+	headerMutation, bodyMutation = buildGCPRequestMutations(gcpPath, body)
 	return headerMutation, bodyMutation, nil
 }
 
