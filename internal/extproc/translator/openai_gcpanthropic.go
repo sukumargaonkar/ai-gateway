@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -265,16 +264,6 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 		Role:    anthropic.MessageParamRoleAssistant,
 		Content: contentBlocks,
 	}, nil
-}
-
-// systemMsgToDeveloperMsg is a helper to convert an OpenAI system message
-// into a developer message to consolidate processing logic.
-func systemMsgToDeveloperMsg(msg openai.ChatCompletionSystemMessageParam) openai.ChatCompletionDeveloperMessageParam {
-	return openai.ChatCompletionDeveloperMessageParam{
-		Name:    msg.Name,
-		Role:    openai.ChatMessageRoleDeveloper,
-		Content: msg.Content,
-	}
 }
 
 // openAIMessagesToAnthropicParams converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic
