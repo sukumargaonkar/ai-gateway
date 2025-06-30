@@ -197,22 +197,21 @@ func extractSystemPromptFromDeveloperMsg(msg openai.ChatCompletionDeveloperMessa
 		return sb.String()
 	case nil:
 		return ""
-	default:
-		// If msg.Content is a StringOrArray, unwrap it
-		if soarr, ok := msg.Content.Value.(openai.StringOrArray); ok {
-			switch val := soarr.Value.(type) {
-			case string:
-				return val
-			case []openai.ChatCompletionContentPartUserUnionParam:
-				var sb strings.Builder
-				for _, part := range val {
-					if part.TextContent != nil {
-						sb.WriteString(part.TextContent.Text)
-					}
+	case openai.StringOrArray:
+		switch val := v.Value.(type) {
+		case string:
+			return val
+		case []openai.ChatCompletionContentPartUserUnionParam:
+			var sb strings.Builder
+			for _, part := range val {
+				if part.TextContent != nil {
+					sb.WriteString(part.TextContent.Text)
 				}
-				return sb.String()
 			}
+			return sb.String()
 		}
+	default:
+		return ""
 	}
 	return ""
 }
