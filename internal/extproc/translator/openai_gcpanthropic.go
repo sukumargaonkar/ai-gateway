@@ -182,42 +182,7 @@ func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockPara
 	return nil, fmt.Errorf("unsupported OpenAI content type: %T", content)
 }
 
-func extractSystemOrDeveloperPromptFromSystem(msg openai.ChatCompletionSystemMessageParam) string {
-	switch v := msg.Content.Value.(type) {
-	case string:
-		return v
-	case []openai.ChatCompletionContentPartUserUnionParam:
-		// Concatenate all text parts for completeness
-		var sb strings.Builder
-		for _, part := range v {
-			if part.TextContent != nil {
-				sb.WriteString(part.TextContent.Text)
-			}
-		}
-		return sb.String()
-	case nil:
-		return ""
-	default:
-		// If msg.Content is a StringOrArray, unwrap it
-		if soarr, ok := msg.Content.Value.(openai.StringOrArray); ok {
-			switch val := soarr.Value.(type) {
-			case string:
-				return val
-			case []openai.ChatCompletionContentPartUserUnionParam:
-				var sb strings.Builder
-				for _, part := range val {
-					if part.TextContent != nil {
-						sb.WriteString(part.TextContent.Text)
-					}
-				}
-				return sb.String()
-			}
-		}
-	}
-	return ""
-}
-
-func extractSystemOrDeveloperPromptFromDeveloper(msg openai.ChatCompletionDeveloperMessageParam) string {
+func extractSystemPromptFromDeveloperMsg(msg openai.ChatCompletionDeveloperMessageParam) string {
 	switch v := msg.Content.Value.(type) {
 	case string:
 		return v
@@ -305,6 +270,16 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 	}, nil
 }
 
+// systemMsgToDeveloperMsg is a helper to convert an OpenAI system message
+// into a developer message to consolidate processing logic.
+func systemMsgToDeveloperMsg(msg openai.ChatCompletionSystemMessageParam) openai.ChatCompletionDeveloperMessageParam {
+	return openai.ChatCompletionDeveloperMessageParam{
+		Name:    msg.Name,
+		Role:    openai.ChatMessageRoleDeveloper,
+		Content: msg.Content,
+	}
+}
+
 // openAIMessagesToAnthropicParams converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic
 func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anthropic.MessageNewParams, err error) {
 	params = &anthropic.MessageNewParams{}
@@ -316,11 +291,12 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (p
 		switch msg.Type {
 		case openai.ChatMessageRoleSystem:
 			if param, ok := msg.Value.(openai.ChatCompletionSystemMessageParam); ok {
-				systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: extractSystemOrDeveloperPromptFromSystem(param)})
+				devParam := systemMsgToDeveloperMsg(param)
+				systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: extractSystemPromptFromDeveloperMsg(devParam)})
 			}
 		case openai.ChatMessageRoleDeveloper:
 			if param, ok := msg.Value.(openai.ChatCompletionDeveloperMessageParam); ok {
-				systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: extractSystemOrDeveloperPromptFromDeveloper(param)})
+				systemBlocks = append(systemBlocks, anthropic.TextBlockParam{Text: extractSystemPromptFromDeveloperMsg(param)})
 			}
 		case openai.ChatMessageRoleUser:
 			message := msg.Value.(openai.ChatCompletionUserMessageParam)
