@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -843,4 +844,89 @@ type errorOnGetClient struct {
 
 func (c *errorOnGetClient) Get(_ context.Context, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
 	return fmt.Errorf("lookup error")
+}
+
+func TestGetGCPProxyClientOption(t *testing.T) {
+	tests := []struct {
+		name           string
+		proxyURL       string
+		setEnvVar      bool
+		wantErr        bool
+		wantNilOption  bool
+		validateOption func(t *testing.T, opt option.ClientOption)
+	}{
+		{
+			name:          "no proxy URL environment variable",
+			setEnvVar:     false,
+			wantErr:       false,
+			wantNilOption: true,
+		},
+		{
+			name:          "empty proxy URL environment variable",
+			proxyURL:      "",
+			setEnvVar:     true,
+			wantErr:       false,
+			wantNilOption: true,
+		},
+		{
+			name:          "valid HTTPS proxy URL",
+			proxyURL:      "https://secure-proxy.example.com:8443",
+			setEnvVar:     true,
+			wantErr:       false,
+			wantNilOption: false,
+			validateOption: func(t *testing.T, opt option.ClientOption) {
+				require.NotNil(t, opt)
+			},
+		},
+		{
+			name:      "invalid proxy URL - missing protocol scheme",
+			proxyURL:  "://invalid",
+			setEnvVar: true,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save original environment variable
+			originalProxyURL := os.Getenv("AI_GATEWAY_GCP_AUTH_PROXY_URL")
+			defer func() {
+				if originalProxyURL != "" {
+					os.Setenv("AI_GATEWAY_GCP_AUTH_PROXY_URL", originalProxyURL)
+				} else {
+					os.Unsetenv("AI_GATEWAY_GCP_AUTH_PROXY_URL")
+				}
+			}()
+
+			// Set up test environment
+			if tt.setEnvVar {
+				os.Setenv("AI_GATEWAY_GCP_AUTH_PROXY_URL", tt.proxyURL)
+			} else {
+				os.Unsetenv("AI_GATEWAY_GCP_AUTH_PROXY_URL")
+			}
+
+			// Call the function under test
+			got, err := getGCPProxyClientOption()
+
+			// Validate error expectation
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "invalid proxy URL")
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Validate nil option expectation
+			if tt.wantNilOption {
+				require.Nil(t, got)
+				return
+			}
+
+			// Additional validation if provided
+			if tt.validateOption != nil {
+				tt.validateOption(t, got)
+			}
+		})
+	}
 }

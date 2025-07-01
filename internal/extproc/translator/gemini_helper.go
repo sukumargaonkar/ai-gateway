@@ -17,7 +17,7 @@ const (
 	GCPModelPublisherGoogle    = "google"
 	GCPModelPublisherAnthropic = "anthropic"
 	GCPMethodGenerateContent   = "generateContent"
-	HTTPHeaderKeyContentLength = "content-length"
+	HTTPHeaderKeyContentLength = "Content-Length"
 )
 
 func buildGCPModelPathSuffix(publisher, model, gcpMethod string) string {

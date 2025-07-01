@@ -159,9 +159,11 @@ func (c *BackendSecurityPolicyController) rotateCredential(ctx context.Context, 
 			return ctrl.Result{}, fmt.Errorf("invalid GCP credentials configuration: %w", err)
 		}
 
+		// For GCP, OIDC is currently the only supported authentication method.
+		// If additional methods are added, validate that OIDC is used before calling getBackendSecurityPolicyAuthOIDC.
 		oidc := getBackendSecurityPolicyAuthOIDC(bsp.Spec)
 
-		// Create the OIDC token provider that will be used to get tokens from the OIDC provider
+		// Create the OIDC token provider that will be used to get tokens from the OIDC provider.
 		var oidcProvider tokenprovider.TokenProvider
 		oidcProvider, err = tokenprovider.NewOidcTokenProvider(ctx, c.client, oidc)
 		if err != nil {

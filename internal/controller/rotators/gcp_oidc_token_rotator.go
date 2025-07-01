@@ -8,6 +8,9 @@ package rotators
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
+	"os"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -67,7 +70,7 @@ type stsTokenGenerator func(
 // 3. Using the STS token to impersonate a GCP service account
 // 4. Storing the resulting access token in a Kubernetes secret
 type gcpOIDCTokenRotator struct {
-	client client.Client // Kubernetes client for interacting with the cluster
+	client client.Client // Kubernetes client for interacting with the cluster.
 	logger logr.Logger   // Logger for recording rotator activities
 	// GCP Credentials configuration from BackendSecurityPolicy
 	gcpCredentials aigv1a1.BackendSecurityPolicyGCPCredentials
@@ -244,8 +247,17 @@ var _ stsTokenGenerator = exchangeJWTForSTSToken
 // exchangeJWTForSTSToken implements [stsTokenGenerator]
 // exchangeJWTForSTSToken exchanges a JWT token for a GCP STS (Security Token Service) token.
 func exchangeJWTForSTSToken(ctx context.Context, jwtToken string, wifConfig aigv1a1.GCPWorkLoadIdentityFederationConfig, opts ...option.ClientOption) (*tokenprovider.TokenExpiry, error) {
-	// Create an STS client.
+	proxyOpt, err := getGCPProxyClientOption()
+	if err != nil {
+		return nil, fmt.Errorf("error getting GCP proxy client option: %w", err)
+	}
+	if proxyOpt != nil {
+		opts = append(opts, proxyOpt)
+	}
+
 	opts = append(opts, option.WithoutAuthentication())
+
+	// Create an STS client.
 	stsService, err := sts.NewService(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("error creating GCP STS service client: %w", err)
@@ -303,6 +315,16 @@ func impersonateServiceAccount(ctx context.Context, stsToken string, saConfig ai
 	// Use the STS token as the source token for impersonation
 	opts = append(opts, option.WithTokenSource(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: stsToken, TokenType: "Bearer"})))
 
+	// If a proxy URL is set, add it as a client option
+	proxyOpt, err := getGCPProxyClientOption()
+	if err != nil {
+		return nil, fmt.Errorf("error getting GCP proxy client option: %w", err)
+	}
+
+	if proxyOpt != nil {
+		opts = append(opts, proxyOpt)
+	}
+
 	// Create a token source that will provide tokens with the permissions of the impersonated service account
 	ts, err := impersonate.CredentialsTokenSource(ctx, config, opts...)
 	if err != nil {
@@ -328,4 +350,21 @@ func populateInSecret(secret *corev1.Secret, gcpAuth filterapi.GCPAuth, expiryTi
 		GCPProjectNameKey: []byte(gcpAuth.ProjectName),
 		GCPRegionKey:      []byte(gcpAuth.Region),
 	}
+}
+
+func getGCPProxyClientOption() (option.ClientOption, error) {
+	proxyURL := os.Getenv("AI_GATEWAY_GCP_AUTH_PROXY_URL")
+	if proxyURL == "" {
+		return nil, nil
+	}
+
+	parsedURL, err := url.Parse(proxyURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid proxy URL: %w", err)
+	}
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(parsedURL),
+	}
+	httpClient := &http.Client{Transport: transport}
+	return option.WithHTTPClient(httpClient), nil
 }
