@@ -109,6 +109,71 @@ func isSupportedImageMediaType(mediaType string) bool {
 	}
 }
 
+// handleToolConfiguration translates OpenAI tool and tool_choice parameters
+// into the Anthropic format and applies them to the request parameters.
+func handleToolConfiguration(openAIReq *openai.ChatCompletionRequest, params *anthropic.MessageNewParams) error {
+	openAITools := openAIReq.Tools
+	if len(openAITools) > 0 {
+		anthropicTools := make([]anthropic.ToolUnionParam, 0, len(openAITools))
+		for _, openAITool := range openAITools {
+			if openAITool.Type != openai.ToolTypeFunction {
+				// Anthropic only supports 'function' tools, so we skip others.
+				continue
+			}
+
+			// The parameters for the function are expected to be a JSON Schema object.
+			// We can pass them through as-is.
+			var inputSchema map[string]interface{}
+			if openAITool.Function.Parameters != nil {
+				// Directly assert the 'any' type to the expected map structure.
+				schema, ok := openAITool.Function.Parameters.(map[string]interface{})
+				if !ok {
+					return fmt.Errorf("tool parameters for '%s' are not a valid JSON object", openAITool.Function.Name)
+				}
+				inputSchema = schema
+			}
+
+			toolParam := anthropic.ToolParam{
+				Name:        openAITool.Function.Name,
+				Description: anthropic.String(openAITool.Function.Description),
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties:  inputSchema,
+					ExtraFields: nil,
+				},
+			}
+			anthropicTools = append(anthropicTools, anthropic.ToolUnionParam{OfTool: &toolParam})
+
+			if len(anthropicTools) > 0 {
+				params.Tools = anthropicTools
+			}
+		}
+
+		// 2. Handle the tool_choice parameter.
+		if openAIReq.ToolChoice != nil {
+
+			switch choice := openAIReq.ToolChoice.(type) {
+			case string:
+				switch choice {
+				case "auto":
+					params.ToolChoice = anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
+				case "any":
+					params.ToolChoice = anthropic.ToolChoiceUnionParam{OfAny: &anthropic.ToolChoiceAnyParam{}}
+				case "none":
+					params.ToolChoice = anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
+				default:
+					params.ToolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Name: choice}}
+				}
+			case openai.ToolChoice:
+				if choice.Type == openai.ToolTypeFunction && choice.Function.Name != "" {
+					params.ToolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Type: constant.Tool(choice.Type), Name: choice.Function.Name}}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // Helper: Convert OpenAI message content to Anthropic content (extended for all types)
 func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockParamUnion, error) {
 	switch v := content.(type) {
@@ -357,6 +422,10 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (*anthropic.M
 		return &anthropic.MessageNewParams{}, err
 	}
 
+	// Translate tools
+	if err = handleToolConfiguration(openAIReq, params); err != nil {
+		return &anthropic.MessageNewParams{}, err
+	}
 	// Handle parameters.
 	// Set default maxTokens if not provided.
 	maxTokens := defaultMaxTokens

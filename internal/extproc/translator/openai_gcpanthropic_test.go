@@ -367,3 +367,148 @@ func TestHelperFunctions(t *testing.T) {
 		require.Contains(t, err.Error(), "contains nil value")
 	})
 }
+
+func TestHandleToolConfiguration(t *testing.T) {
+	anthropicTestTool := []anthropic.ToolUnionParam{
+		{OfTool: &anthropic.ToolParam{Name: "get_weather", Description: anthropic.String("")}},
+	}
+	openaiTestTool := []openai.Tool{
+		{Type: "function", Function: &openai.FunctionDefinition{Name: "get_weather"}},
+	}
+	tests := []struct {
+		name           string
+		openAIReq      *openai.ChatCompletionRequest
+		expectedParams *anthropic.MessageNewParams
+		expectErr      bool
+	}{
+		{
+			name: "auto tool choice",
+			openAIReq: &openai.ChatCompletionRequest{
+				ToolChoice: "auto",
+				Tools:      openaiTestTool,
+			},
+			expectedParams: &anthropic.MessageNewParams{
+				ToolChoice: anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}},
+				Tools:      anthropicTestTool,
+			},
+		},
+		{
+			name: "any tool choice",
+			openAIReq: &openai.ChatCompletionRequest{
+				ToolChoice: "any",
+				Tools:      openaiTestTool,
+			},
+			expectedParams: &anthropic.MessageNewParams{
+				ToolChoice: anthropic.ToolChoiceUnionParam{OfAny: &anthropic.ToolChoiceAnyParam{}},
+				Tools:      anthropicTestTool,
+			},
+		},
+		{
+			name: "specific tool choice by name",
+			openAIReq: &openai.ChatCompletionRequest{
+				ToolChoice: openai.ToolChoice{Type: "function", Function: openai.ToolFunction{Name: "my_func"}},
+				Tools:      openaiTestTool,
+			},
+			expectedParams: &anthropic.MessageNewParams{
+				ToolChoice: anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Type: "function", Name: "my_func"}},
+				Tools:      anthropicTestTool,
+			},
+		},
+		{
+			name: "invalid tool parameters",
+			openAIReq: &openai.ChatCompletionRequest{
+				Tools: []openai.Tool{
+					{Type: "function", Function: &openai.FunctionDefinition{Name: "test", Parameters: "not-a-map"}},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "tool definition",
+			openAIReq: &openai.ChatCompletionRequest{
+				Tools: []openai.Tool{
+					{
+						Type: "function",
+						Function: &openai.FunctionDefinition{
+							Name:        "get_weather",
+							Description: "Get the weather",
+							Parameters: map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"location": map[string]interface{}{"type": "string"},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedParams: &anthropic.MessageNewParams{
+				Tools: []anthropic.ToolUnionParam{
+					{
+						OfTool: &anthropic.ToolParam{
+							Name:        "get_weather",
+							Description: anthropic.String("Get the weather"),
+							InputSchema: anthropic.ToolInputSchemaParam{
+								Properties: map[string]interface{}{
+									"location": map[string]interface{}{"type": "string"}},
+								Type:        "object",
+								ExtraFields: nil,
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "tool definition with no parameters",
+			openAIReq: &openai.ChatCompletionRequest{
+				Tools: []openai.Tool{
+					{
+						Type: "function",
+						Function: &openai.FunctionDefinition{
+							Name:        "get_time",
+							Description: "Get the current time",
+							Parameters:  nil,
+						},
+					},
+				},
+			},
+			expectedParams: &anthropic.MessageNewParams{
+				Tools: []anthropic.ToolUnionParam{
+					{
+						OfTool: &anthropic.ToolParam{
+							Name:        "get_time",
+							Description: anthropic.String("Get the current time"),
+							InputSchema: anthropic.ToolInputSchemaParam{},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := &anthropic.MessageNewParams{}
+			err := handleToolConfiguration(tt.openAIReq, params)
+			if tt.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				if tt.openAIReq.ToolChoice != nil {
+					require.NotNil(t, params.ToolChoice)
+					require.Equal(t, *tt.expectedParams.ToolChoice.GetType(), *params.ToolChoice.GetType())
+					require.Equal(t, *tt.expectedParams.ToolChoice.GetName(), *params.ToolChoice.GetName())
+					if tt.expectedParams.ToolChoice.OfTool != nil {
+						require.Equal(t, tt.expectedParams.ToolChoice.OfTool.Name, params.ToolChoice.OfTool.Name)
+					}
+				}
+				if tt.openAIReq.Tools != nil {
+					require.NotNil(t, params.Tools)
+					require.Len(t, params.Tools, len(tt.expectedParams.Tools))
+					require.Equal(t, tt.expectedParams.Tools[0].OfTool.Name, params.Tools[0].OfTool.Name)
+				}
+			}
+		})
+	}
+}
