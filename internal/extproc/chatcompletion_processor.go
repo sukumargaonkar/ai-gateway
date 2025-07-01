@@ -157,6 +157,7 @@ type chatCompletionProcessorUpstreamFilter struct {
 	responseHeaders        map[string]string
 	responseEncoding       string
 	modelNameOverride      string
+	backendName            string
 	handler                backendauth.Handler
 	originalRequestBodyRaw []byte
 	originalRequestBody    *openai.ChatCompletionRequest
@@ -332,10 +333,15 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 	}
 
 	if body.EndOfStream && len(c.config.requestCosts) > 0 {
-		resp.DynamicMetadata, err = buildDynamicMetadata(c.config, &c.costs, c.requestHeaders)
+		metadata, err := buildDynamicMetadata(c.config, &c.costs, c.requestHeaders, c.modelNameOverride, c.backendName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build dynamic metadata: %w", err)
 		}
+		if c.stream {
+			// Adding token latency information to metadata.
+			c.mergeWithTokenLatencyMetadata(metadata)
+		}
+		resp.DynamicMetadata = metadata
 	}
 
 	return resp, nil
@@ -353,6 +359,7 @@ func (c *chatCompletionProcessorUpstreamFilter) SetBackend(ctx context.Context, 
 	rp.upstreamFilterCount++
 	c.metrics.SetBackend(b)
 	c.modelNameOverride = b.ModelNameOverride
+	c.backendName = b.Name
 	if err = c.selectTranslator(b.Schema); err != nil {
 		return fmt.Errorf("failed to select translator: %w", err)
 	}
@@ -365,6 +372,19 @@ func (c *chatCompletionProcessorUpstreamFilter) SetBackend(ctx context.Context, 
 	return
 }
 
+func (c *chatCompletionProcessorUpstreamFilter) mergeWithTokenLatencyMetadata(metadata *structpb.Struct) {
+	timeToFirstTokenMs := c.metrics.GetTimeToFirstTokenMs()
+	interTokenLatencyMs := c.metrics.GetInterTokenLatencyMs()
+	ns := c.config.metadataNamespace
+	innerVal := metadata.Fields[ns].GetStructValue()
+	if innerVal == nil {
+		innerVal = &structpb.Struct{Fields: map[string]*structpb.Value{}}
+		metadata.Fields[ns] = structpb.NewStructValue(innerVal)
+	}
+	innerVal.Fields["token_latency_ttft"] = &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: timeToFirstTokenMs}}
+	innerVal.Fields["token_latency_itl"] = &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: interTokenLatencyMs}}
+}
+
 func parseOpenAIChatCompletionBody(body *extprocv3.HttpBody) (modelName string, rb *openai.ChatCompletionRequest, err error) {
 	var openAIReq openai.ChatCompletionRequest
 	if err := json.Unmarshal(body.Body, &openAIReq); err != nil {
@@ -373,8 +393,8 @@ func parseOpenAIChatCompletionBody(body *extprocv3.HttpBody) (modelName string, 
 	return openAIReq.Model, &openAIReq, nil
 }
 
-func buildDynamicMetadata(config *processorConfig, costs *translator.LLMTokenUsage, requestHeaders map[string]string) (*structpb.Struct, error) {
-	metadata := make(map[string]*structpb.Value, len(config.requestCosts))
+func buildDynamicMetadata(config *processorConfig, costs *translator.LLMTokenUsage, requestHeaders map[string]string, modelNameOverride, backendName string) (*structpb.Struct, error) {
+	metadataCost := make(map[string]*structpb.Value, len(config.requestCosts))
 	for i := range config.requestCosts {
 		rc := &config.requestCosts[i]
 		var cost uint32
@@ -401,18 +421,33 @@ func buildDynamicMetadata(config *processorConfig, costs *translator.LLMTokenUsa
 		default:
 			return nil, fmt.Errorf("unknown request cost kind: %s", rc.Type)
 		}
-		metadata[rc.MetadataKey] = &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: float64(cost)}}
+		metadataCost[rc.MetadataKey] = &structpb.Value{Kind: &structpb.Value_NumberValue{NumberValue: float64(cost)}}
 	}
-	if len(metadata) == 0 {
+
+	metadataRoute := make(map[string]*structpb.Value, 2)
+	if modelNameOverride != "" {
+		metadataRoute["model_name_override"] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: modelNameOverride}}
+	}
+
+	if backendName != "" {
+		metadataRoute["backend_name"] = &structpb.Value{Kind: &structpb.Value_StringValue{StringValue: backendName}}
+	}
+
+	metadata := &structpb.Struct{
+		Fields: map[string]*structpb.Value{},
+	}
+
+	if len(metadataCost) != 0 {
+		metadata.Fields[config.metadataNamespace] = &structpb.Value{Kind: &structpb.Value_StructValue{StructValue: &structpb.Struct{Fields: metadataCost}}}
+	}
+
+	if len(metadataRoute) != 0 {
+		metadata.Fields["route"] = &structpb.Value{Kind: &structpb.Value_StructValue{StructValue: &structpb.Struct{Fields: metadataRoute}}}
+	}
+
+	if len(metadata.Fields) == 0 {
 		return nil, nil
 	}
-	return &structpb.Struct{
-		Fields: map[string]*structpb.Value{
-			config.metadataNamespace: {
-				Kind: &structpb.Value_StructValue{
-					StructValue: &structpb.Struct{Fields: metadata},
-				},
-			},
-		},
-	}, nil
+
+	return metadata, nil
 }
