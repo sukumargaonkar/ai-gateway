@@ -435,7 +435,6 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anth
 
 	// 4. Construct the final struct in one place.
 	params = &anthropic.MessageNewParams{
-		Model:      anthropic.Model(openAIReq.Model),
 		Messages:   messages,
 		MaxTokens:  maxTokens,
 		System:     systemBlocks,
