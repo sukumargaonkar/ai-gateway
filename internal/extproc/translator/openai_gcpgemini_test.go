@@ -37,7 +37,7 @@ func TestOpenAIToGCPGeminiTranslator_RequestBody(t *testing.T) {
 					},
 				},
 			},
-			wantPath:  "https://{{.gcpRegion}}-aiplatform.googleapis.com/v1/projects/{{.gcpProjectName}}/locations/{{.gcpRegion}}/publishers/google/models/gemini-pro:generateContent",
+			wantPath:  "publishers/google/models/gemini-pro:generateContent",
 			wantError: false,
 		},
 	}
