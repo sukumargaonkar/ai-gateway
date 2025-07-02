@@ -380,7 +380,7 @@ func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 		openAIReq          *openai.ChatCompletionRequest
 		expectedTools      []anthropic.ToolUnionParam
 		expectedToolChoice anthropic.ToolChoiceUnionParam
-		disableParallel    bool
+		disableParallel    *bool
 		expectErr          bool
 	}{
 		{
@@ -485,11 +485,25 @@ func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "disable parallel tool calls",
+			openAIReq: &openai.ChatCompletionRequest{
+				ToolChoice:        "auto",
+				Tools:             openaiTestTool,
+				ParallelToolCalls: ptr.To(false),
+			},
+			expectedTools: anthropicTestTool,
+			expectedToolChoice: anthropic.ToolChoiceUnionParam{
+				OfAuto: &anthropic.ToolChoiceAutoParam{
+					DisableParallelToolUse: anthropic.Bool(true),
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tools, toolChoice, err := translateOpenAItoAnthropicTools(tt.openAIReq.Tools, tt.openAIReq.ToolChoice)
+			tools, toolChoice, err := translateOpenAItoAnthropicTools(tt.openAIReq.Tools, tt.openAIReq.ToolChoice, tt.disableParallel)
 			if tt.expectErr {
 				require.Error(t, err)
 			} else {
