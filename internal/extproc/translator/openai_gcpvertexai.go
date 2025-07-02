@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"google.golang.org/genai"
@@ -34,7 +33,6 @@ type openAIToGCPVertexAITranslatorV1ChatCompletion struct{}
 func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, _ bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
-	openAIReq.Model = strings.TrimPrefix(openAIReq.Model, "gcp.")
 	pathSuffix := buildGCPModelPathSuffix(GCPModelPublisherGoogle, openAIReq.Model, GCPMethodGenerateContent)
 
 	gcpReq, err := o.openAIMessageToGeminiMessage(openAIReq)
