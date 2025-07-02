@@ -498,7 +498,9 @@ func TestHandleToolConfiguration(t *testing.T) {
 				if tt.openAIReq.ToolChoice != nil {
 					require.NotNil(t, params.ToolChoice)
 					require.Equal(t, *tt.expectedParams.ToolChoice.GetType(), *params.ToolChoice.GetType())
-					require.Equal(t, *tt.expectedParams.ToolChoice.GetName(), *params.ToolChoice.GetName())
+					if tt.expectedParams.ToolChoice.GetName() != nil {
+						require.Equal(t, *tt.expectedParams.ToolChoice.GetName(), *params.ToolChoice.GetName())
+					}
 					if tt.expectedParams.ToolChoice.OfTool != nil {
 						require.Equal(t, tt.expectedParams.ToolChoice.OfTool.Name, params.ToolChoice.OfTool.Name)
 					}
