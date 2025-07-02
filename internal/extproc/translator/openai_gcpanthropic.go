@@ -59,6 +59,7 @@ func anthropicToOpenAIFinishReason(stopReason anthropic.StopReason) (openai.Chat
 	case anthropic.StopReasonEndTurn, anthropic.StopReasonStopSequence, anthropic.StopReasonPauseTurn:
 		return openai.ChatCompletionChoicesFinishReasonStop, nil
 	case anthropic.StopReasonMaxTokens: // Claude stopped because it reached the max_tokens limit specified in your request.
+		// TODO: do we want to return an error? see: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/implement-tool-use#handling-the-max-tokens-stop-reason
 		return openai.ChatCompletionChoicesFinishReasonLength, nil
 	case anthropic.StopReasonToolUse:
 		return openai.ChatCompletionChoicesFinishReasonToolCalls, nil
@@ -111,7 +112,7 @@ func isSupportedImageMediaType(mediaType string) bool {
 
 // translateOpenAItoAnthropicTools translates OpenAI tool and tool_choice parameters
 // into the Anthropic format and returns translated tool & tool choice.
-func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice any) (tools []anthropic.ToolUnionParam, toolChoice anthropic.ToolChoiceUnionParam, err error) {
+func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice any, parallelToolCalls bool) (tools []anthropic.ToolUnionParam, toolChoice anthropic.ToolChoiceUnionParam, err error) {
 	if len(openAITools) > 0 {
 		anthropicTools := make([]anthropic.ToolUnionParam, 0, len(openAITools))
 		for _, openAITool := range openAITools {
@@ -151,27 +152,33 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 		}
 
 		// 2. Handle the tool_choice parameter.
+		disableParallelToolUse := anthropic.Bool(parallelToolCalls)
 		if openAIToolChoice != nil {
 			switch choice := openAIToolChoice.(type) {
 			case string:
 				switch choice {
 				case "auto":
 					toolChoice = anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
-				case "any":
+					toolChoice.OfAuto.DisableParallelToolUse = disableParallelToolUse
+				case "required", "any":
 					toolChoice = anthropic.ToolChoiceUnionParam{OfAny: &anthropic.ToolChoiceAnyParam{}}
+					toolChoice.OfAny.DisableParallelToolUse = disableParallelToolUse
 				case "none":
 					toolChoice = anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
-				default:
+				case "function":
 					toolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Name: choice}}
+					toolChoice.OfTool.DisableParallelToolUse = disableParallelToolUse
+				default:
+					err = fmt.Errorf("invalid tool choice type '%s'", choice)
 				}
 			case openai.ToolChoice:
 				if choice.Type == openai.ToolTypeFunction && choice.Function.Name != "" {
 					toolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Type: constant.Tool(choice.Type), Name: choice.Function.Name}}
+					toolChoice.OfTool.DisableParallelToolUse = disableParallelToolUse
 				}
 			}
 		}
 	}
-
 	return
 }
 
@@ -393,6 +400,8 @@ func openAIToAnthropicMessages(openAIMsgs []openai.ChatCompletionMessageParamUni
 				ToolUseID: toolMsg.ToolCallID,
 				Type:      "tool_result",
 				Content:   toolContent,
+				//TODO: how to get isError from openAI?
+				//IsError:  anthropic.Bool(false),
 			}
 			anthropicMsg := anthropic.MessageParam{
 				Role: anthropic.MessageParamRoleUser,
@@ -428,7 +437,7 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anth
 	}
 
 	// Translate tools and tool choice
-	tools, toolChoice, err := translateOpenAItoAnthropicTools(openAIReq.Tools, openAIReq.ToolChoice)
+	tools, toolChoice, err := translateOpenAItoAnthropicTools(openAIReq.Tools, openAIReq.ToolChoice, openAIReq.ParallelToolCalls)
 	if err != nil {
 		return
 	}
