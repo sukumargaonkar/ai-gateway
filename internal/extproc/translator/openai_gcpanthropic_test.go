@@ -368,7 +368,7 @@ func TestHelperFunctions(t *testing.T) {
 	})
 }
 
-func TestHandleToolConfiguration(t *testing.T) {
+func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 	anthropicTestTool := []anthropic.ToolUnionParam{
 		{OfTool: &anthropic.ToolParam{Name: "get_weather", Description: anthropic.String("")}},
 	}
@@ -376,10 +376,11 @@ func TestHandleToolConfiguration(t *testing.T) {
 		{Type: "function", Function: &openai.FunctionDefinition{Name: "get_weather"}},
 	}
 	tests := []struct {
-		name           string
-		openAIReq      *openai.ChatCompletionRequest
-		expectedParams *anthropic.MessageNewParams
-		expectErr      bool
+		name               string
+		openAIReq          *openai.ChatCompletionRequest
+		expectedTools      []anthropic.ToolUnionParam
+		expectedToolChoice anthropic.ToolChoiceUnionParam
+		expectErr          bool
 	}{
 		{
 			name: "auto tool choice",
@@ -387,9 +388,9 @@ func TestHandleToolConfiguration(t *testing.T) {
 				ToolChoice: "auto",
 				Tools:      openaiTestTool,
 			},
-			expectedParams: &anthropic.MessageNewParams{
-				ToolChoice: anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}},
-				Tools:      anthropicTestTool,
+			expectedTools: anthropicTestTool,
+			expectedToolChoice: anthropic.ToolChoiceUnionParam{
+				OfAuto: &anthropic.ToolChoiceAutoParam{},
 			},
 		},
 		{
@@ -398,9 +399,9 @@ func TestHandleToolConfiguration(t *testing.T) {
 				ToolChoice: "any",
 				Tools:      openaiTestTool,
 			},
-			expectedParams: &anthropic.MessageNewParams{
-				ToolChoice: anthropic.ToolChoiceUnionParam{OfAny: &anthropic.ToolChoiceAnyParam{}},
-				Tools:      anthropicTestTool,
+			expectedTools: anthropicTestTool,
+			expectedToolChoice: anthropic.ToolChoiceUnionParam{
+				OfAny: &anthropic.ToolChoiceAnyParam{},
 			},
 		},
 		{
@@ -409,9 +410,9 @@ func TestHandleToolConfiguration(t *testing.T) {
 				ToolChoice: openai.ToolChoice{Type: "function", Function: openai.ToolFunction{Name: "my_func"}},
 				Tools:      openaiTestTool,
 			},
-			expectedParams: &anthropic.MessageNewParams{
-				ToolChoice: anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Type: "function", Name: "my_func"}},
-				Tools:      anthropicTestTool,
+			expectedTools: anthropicTestTool,
+			expectedToolChoice: anthropic.ToolChoiceUnionParam{
+				OfTool: &anthropic.ToolChoiceToolParam{Type: "function", Name: "my_func"},
 			},
 		},
 		{
@@ -442,18 +443,20 @@ func TestHandleToolConfiguration(t *testing.T) {
 					},
 				},
 			},
-			expectedParams: &anthropic.MessageNewParams{
-				Tools: []anthropic.ToolUnionParam{
-					{
-						OfTool: &anthropic.ToolParam{
-							Name:        "get_weather",
-							Description: anthropic.String("Get the weather"),
-							InputSchema: anthropic.ToolInputSchemaParam{
-								Properties: map[string]interface{}{
-									"location": map[string]interface{}{"type": "string"}},
-								Type:        "object",
-								ExtraFields: nil,
+			expectedTools: []anthropic.ToolUnionParam{
+				{
+					OfTool: &anthropic.ToolParam{
+						Name:        "get_weather",
+						Description: anthropic.String("Get the weather"),
+						InputSchema: anthropic.ToolInputSchemaParam{
+							Properties: map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"location": map[string]interface{}{"type": "string"},
+								},
 							},
+							Type:        "function",
+							ExtraFields: nil,
 						},
 					},
 				},
@@ -468,19 +471,15 @@ func TestHandleToolConfiguration(t *testing.T) {
 						Function: &openai.FunctionDefinition{
 							Name:        "get_time",
 							Description: "Get the current time",
-							Parameters:  nil,
 						},
 					},
 				},
 			},
-			expectedParams: &anthropic.MessageNewParams{
-				Tools: []anthropic.ToolUnionParam{
-					{
-						OfTool: &anthropic.ToolParam{
-							Name:        "get_time",
-							Description: anthropic.String("Get the current time"),
-							InputSchema: anthropic.ToolInputSchemaParam{},
-						},
+			expectedTools: []anthropic.ToolUnionParam{
+				{
+					OfTool: &anthropic.ToolParam{
+						Name:        "get_time",
+						Description: anthropic.String("Get the current time"),
 					},
 				},
 			},
@@ -489,26 +488,30 @@ func TestHandleToolConfiguration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			params := &anthropic.MessageNewParams{}
-			err := handleToolConfiguration(tt.openAIReq, params)
+			tools, toolChoice, err := translateOpenAItoAnthropicTools(tt.openAIReq.Tools, tt.openAIReq.ToolChoice)
 			if tt.expectErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 				if tt.openAIReq.ToolChoice != nil {
-					require.NotNil(t, params.ToolChoice)
-					require.Equal(t, *tt.expectedParams.ToolChoice.GetType(), *params.ToolChoice.GetType())
-					if tt.expectedParams.ToolChoice.GetName() != nil {
-						require.Equal(t, *tt.expectedParams.ToolChoice.GetName(), *params.ToolChoice.GetName())
+					require.NotNil(t, toolChoice)
+					require.Equal(t, *tt.expectedToolChoice.GetType(), *toolChoice.GetType())
+					if tt.expectedToolChoice.GetName() != nil {
+						require.Equal(t, *tt.expectedToolChoice.GetName(), *toolChoice.GetName())
 					}
-					if tt.expectedParams.ToolChoice.OfTool != nil {
-						require.Equal(t, tt.expectedParams.ToolChoice.OfTool.Name, params.ToolChoice.OfTool.Name)
+					if tt.expectedToolChoice.OfTool != nil {
+						require.Equal(t, tt.expectedToolChoice.OfTool.Name, toolChoice.OfTool.Name)
 					}
 				}
 				if tt.openAIReq.Tools != nil {
-					require.NotNil(t, params.Tools)
-					require.Len(t, params.Tools, len(tt.expectedParams.Tools))
-					require.Equal(t, tt.expectedParams.Tools[0].OfTool.Name, params.Tools[0].OfTool.Name)
+					require.NotNil(t, tools)
+					require.Len(t, tools, len(tt.expectedTools))
+					require.Equal(t, tt.expectedTools[0].GetName(), tools[0].GetName())
+					require.Equal(t, tt.expectedTools[0].GetType(), tools[0].GetType())
+					require.Equal(t, tt.expectedTools[0].GetDescription(), tools[0].GetDescription())
+					if tt.expectedTools[0].GetInputSchema().Properties != nil {
+						require.EqualValues(t, tt.expectedTools[0].GetInputSchema().Properties, tools[0].GetInputSchema().Properties)
+					}
 				}
 			}
 		})

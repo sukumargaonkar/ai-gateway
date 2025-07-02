@@ -109,13 +109,16 @@ func isSupportedImageMediaType(mediaType string) bool {
 	}
 }
 
-// handleToolConfiguration translates OpenAI tool and tool_choice parameters
-// into the Anthropic format and applies them to the request parameters.
-func handleToolConfiguration(openAIReq *openai.ChatCompletionRequest, params *anthropic.MessageNewParams) error {
-	openAITools := openAIReq.Tools
+// translateOpenAItoAnthropicTools translates OpenAI tool and tool_choice parameters
+// into the Anthropic format and returns translated tool & tool choice.
+func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice any) (tools []anthropic.ToolUnionParam, toolChoice anthropic.ToolChoiceUnionParam, err error) {
 	if len(openAITools) > 0 {
 		anthropicTools := make([]anthropic.ToolUnionParam, 0, len(openAITools))
 		for _, openAITool := range openAITools {
+			toolParam := anthropic.ToolParam{
+				Name:        openAITool.Function.Name,
+				Description: anthropic.String(openAITool.Function.Description),
+			}
 			if openAITool.Type != openai.ToolTypeFunction {
 				// Anthropic only supports 'function' tools, so we skip others.
 				continue
@@ -128,50 +131,48 @@ func handleToolConfiguration(openAIReq *openai.ChatCompletionRequest, params *an
 				// Directly assert the 'any' type to the expected map structure.
 				schema, ok := openAITool.Function.Parameters.(map[string]interface{})
 				if !ok {
-					return fmt.Errorf("tool parameters for '%s' are not a valid JSON object", openAITool.Function.Name)
+					err = fmt.Errorf("tool parameters for '%s' are not a valid JSON object", openAITool.Function.Name)
+					return
 				}
 				inputSchema = schema
 			}
 
-			toolParam := anthropic.ToolParam{
-				Name:        openAITool.Function.Name,
-				Description: anthropic.String(openAITool.Function.Description),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Properties:  inputSchema,
-					ExtraFields: nil,
-				},
+			toolParam.InputSchema = anthropic.ToolInputSchemaParam{
+				Properties: inputSchema,
+				// TODO: how/should we support this
+				ExtraFields: nil,
 			}
+
 			anthropicTools = append(anthropicTools, anthropic.ToolUnionParam{OfTool: &toolParam})
 
 			if len(anthropicTools) > 0 {
-				params.Tools = anthropicTools
+				tools = anthropicTools
 			}
 		}
 
 		// 2. Handle the tool_choice parameter.
-		if openAIReq.ToolChoice != nil {
-
-			switch choice := openAIReq.ToolChoice.(type) {
+		if openAIToolChoice != nil {
+			switch choice := openAIToolChoice.(type) {
 			case string:
 				switch choice {
 				case "auto":
-					params.ToolChoice = anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
+					toolChoice = anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
 				case "any":
-					params.ToolChoice = anthropic.ToolChoiceUnionParam{OfAny: &anthropic.ToolChoiceAnyParam{}}
+					toolChoice = anthropic.ToolChoiceUnionParam{OfAny: &anthropic.ToolChoiceAnyParam{}}
 				case "none":
-					params.ToolChoice = anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
+					toolChoice = anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
 				default:
-					params.ToolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Name: choice}}
+					toolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Name: choice}}
 				}
 			case openai.ToolChoice:
 				if choice.Type == openai.ToolTypeFunction && choice.Function.Name != "" {
-					params.ToolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Type: constant.Tool(choice.Type), Name: choice.Function.Name}}
+					toolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Type: constant.Tool(choice.Type), Name: choice.Function.Name}}
 				}
 			}
 		}
 	}
 
-	return nil
+	return
 }
 
 // Helper: Convert OpenAI message content to Anthropic content (extended for all types)
@@ -290,7 +291,7 @@ func anthropicRoleToOpenAIRole(role anthropic.MessageParamRole) (string, error) 
 
 // openAIMessageToAnthropicMessageRoleAssistant converts an OpenAI assistant message to Anthropic content blocks.
 // The tool_use content is appended to the Anthropic message content list if tool_calls are present.
-func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatCompletionAssistantMessageParam) (*anthropic.MessageParam, error) {
+func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatCompletionAssistantMessageParam) (anthropicMsg *anthropic.MessageParam, err error) {
 	contentBlocks := make([]anthropic.ContentBlockParamUnion, 0)
 	if v, ok := openAiMessage.Content.Value.(string); ok && len(v) > 0 {
 		contentBlocks = append(contentBlocks, anthropic.NewTextBlock(v))
@@ -304,7 +305,9 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 			if content.Text != nil {
 				contentBlocks = append(contentBlocks, anthropic.NewTextBlock(*content.Text))
 			}
-			// TODO: Add more cases here if you support images, etc.
+		default:
+			err = fmt.Errorf("content type not supported: %v", content.Type)
+			return
 		}
 	}
 
@@ -312,8 +315,9 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 	for i := range openAiMessage.ToolCalls {
 		toolCall := &openAiMessage.ToolCalls[i]
 		var input map[string]interface{}
-		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &input); err != nil {
-			return nil, err
+		if err = json.Unmarshal([]byte(toolCall.Function.Arguments), &input); err != nil {
+			err = fmt.Errorf("failed to unmarshal tool call arguments: %w", err)
+			return
 		}
 		toolUse := anthropic.ToolUseBlockParam{
 			ID:    toolCall.ID,
@@ -330,14 +334,11 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 	}, nil
 }
 
-// openAIMessagesToAnthropicParams converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic
-func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anthropic.MessageNewParams, err error) {
-	params = &anthropic.MessageNewParams{}
-	var systemBlocks []anthropic.TextBlockParam
-	var anthropicMessages []anthropic.MessageParam
+// openAIToAnthropicMessages converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic
+func openAIToAnthropicMessages(openAIMsgs []openai.ChatCompletionMessageParamUnion) (anthropicMessages []anthropic.MessageParam, systemBlocks []anthropic.TextBlockParam, err error) {
 
-	for i := range openAIReq.Messages {
-		msg := &openAIReq.Messages[i]
+	for i := range openAIMsgs {
+		msg := openAIMsgs[i]
 		switch msg.Type {
 		case openai.ChatMessageRoleSystem:
 			if param, ok := msg.Value.(openai.ChatCompletionSystemMessageParam); ok {
@@ -353,7 +354,7 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (p
 			var content []anthropic.ContentBlockParamUnion
 			content, err = openAIToAnthropicContent(message.Content.Value)
 			if err != nil {
-				return &anthropic.MessageNewParams{}, err
+				return
 			}
 			anthropicMsg := anthropic.MessageParam{
 				Role:    anthropic.MessageParamRoleUser,
@@ -366,7 +367,7 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (p
 			var messages *anthropic.MessageParam
 			messages, err = openAIMessageToAnthropicMessageRoleAssistant(&assistantMessage)
 			if err != nil {
-				return &anthropic.MessageNewParams{}, err
+				return
 			}
 			// TODO: check works with multi tool
 			anthropicMessages = append(anthropicMessages, *messages)
@@ -375,7 +376,7 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (p
 			var content []anthropic.ContentBlockParamUnion
 			content, err = openAIToAnthropicContent(toolMsg.Content)
 			if err != nil {
-				return &anthropic.MessageNewParams{}, err
+				return
 			}
 			var toolContent []anthropic.ToolResultBlockParamContentUnion
 			var trb anthropic.ToolResultBlockParamContentUnion
@@ -401,40 +402,47 @@ func openAIMessagesToAnthropicParams(openAIReq *openai.ChatCompletionRequest) (p
 			}
 			anthropicMessages = append(anthropicMessages, anthropicMsg)
 		default:
-			return &anthropic.MessageNewParams{}, fmt.Errorf("unsupported OpenAI role type: %s", msg.Type)
+			err = fmt.Errorf("unsupported OpenAI role type: %s", msg.Type)
+			return
 		}
 	}
-
-	params.Messages = anthropicMessages
-	if len(systemBlocks) > 0 {
-		params.System = systemBlocks
-	}
-
-	return params, nil
+	return
 }
 
 // buildAnthropicParams is a helper function that translates an OpenAI request
 // into the parameter struct required by the Anthropic SDK.
-func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (*anthropic.MessageNewParams, error) {
-	// Translate openAI contents to anthropic params
-	params, err := openAIMessagesToAnthropicParams(openAIReq)
-	if err != nil {
-		return &anthropic.MessageNewParams{}, err
-	}
-
-	// Translate tools
-	if err = handleToolConfiguration(openAIReq, params); err != nil {
-		return &anthropic.MessageNewParams{}, err
-	}
-	// Handle parameters.
-	// Set default maxTokens if not provided.
+func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anthropic.MessageNewParams, error error) {
+	// 1. Handle simple parameters and defaults.
 	maxTokens := defaultMaxTokens
 	if openAIReq.MaxCompletionTokens != nil {
 		maxTokens = *openAIReq.MaxCompletionTokens
 	} else if openAIReq.MaxTokens != nil {
 		maxTokens = *openAIReq.MaxTokens
 	}
-	params.MaxTokens = maxTokens
+
+	// Translate openAI contents to anthropic params
+	// 2. Translate messages and system prompts
+	messages, systemBlocks, err := openAIToAnthropicMessages(openAIReq.Messages)
+	if err != nil {
+		return
+	}
+
+	// Translate tools and tool choice
+	tools, toolChoice, err := translateOpenAItoAnthropicTools(openAIReq.Tools, openAIReq.ToolChoice)
+	if err != nil {
+		return
+	}
+
+	// 4. Construct the final struct in one place.
+	params = &anthropic.MessageNewParams{
+		Model:      anthropic.Model(openAIReq.Model),
+		Messages:   messages,
+		MaxTokens:  maxTokens,
+		System:     systemBlocks,
+		Tools:      tools,
+		ToolChoice: toolChoice,
+	}
+
 	if openAIReq.Temperature != nil {
 		if err = validateTemperatureForAnthropic(openAIReq.Temperature); err != nil {
 			return &anthropic.MessageNewParams{}, err
@@ -455,10 +463,6 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (*anthropic.M
 	}
 
 	return params, nil
-}
-
-func getGCPPath(model, specifier string) string {
-	return fmt.Sprintf("/models/%s:%s", model, specifier)
 }
 
 // RequestBody implements [Translator.RequestBody] for GCP.
