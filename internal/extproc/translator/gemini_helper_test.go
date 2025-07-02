@@ -763,12 +763,6 @@ func TestToGeminiGenerationConfig(t *testing.T) {
 			expects: &genai.GenerationConfig{},
 			wantErr: false,
 		},
-		{
-			name:    "nil input",
-			input:   nil,
-			expects: nil,
-			wantErr: true,
-		},
 	}
 
 	for _, tc := range tests {

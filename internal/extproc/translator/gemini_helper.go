@@ -260,9 +260,6 @@ func fromAssistantMsg(msg openai.ChatCompletionAssistantMessageParam) ([]*genai.
 
 // toGeminiGenerationConfig converts OpenAI request to Gemini GenerationConfig.
 func toGeminiGenerationConfig(openAIReq *openai.ChatCompletionRequest) (*genai.GenerationConfig, error) {
-	if openAIReq == nil {
-		return nil, fmt.Errorf("input request is nil")
-	}
 	gc := &genai.GenerationConfig{}
 	if openAIReq.Temperature != nil {
 		f := float32(*openAIReq.Temperature)
