@@ -112,7 +112,7 @@ func isSupportedImageMediaType(mediaType string) bool {
 
 // translateOpenAItoAnthropicTools translates OpenAI tool and tool_choice parameters
 // into the Anthropic format and returns translated tool & tool choice.
-func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice any, parallelToolCalls bool) (tools []anthropic.ToolUnionParam, toolChoice anthropic.ToolChoiceUnionParam, err error) {
+func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice any, parallelToolCalls *bool) (tools []anthropic.ToolUnionParam, toolChoice anthropic.ToolChoiceUnionParam, err error) {
 	if len(openAITools) > 0 {
 		anthropicTools := make([]anthropic.ToolUnionParam, 0, len(openAITools))
 		for _, openAITool := range openAITools {
@@ -152,7 +152,14 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 		}
 
 		// 2. Handle the tool_choice parameter.
-		disableParallelToolUse := anthropic.Bool(parallelToolCalls)
+		// disable parallel tool use default value is false
+		// see: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/implement-tool-use#parallel-tool-use
+		disableParallelToolUse := anthropic.Bool(false)
+		if parallelToolCalls != nil {
+			// openAI variable checks to allow parallel tool calls,
+			// anthropic variable checks to disable, so need to use the inverse
+			disableParallelToolUse = anthropic.Bool(!*parallelToolCalls)
+		}
 		if openAIToolChoice != nil {
 			switch choice := openAIToolChoice.(type) {
 			case string:
@@ -166,6 +173,8 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 				case "none":
 					toolChoice = anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
 				case "function":
+					// this is how anthropic forces tool use
+					// TODO: should we check if strict true in openAI request, and if so, use this?
 					toolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Name: choice}}
 					toolChoice.OfTool.DisableParallelToolUse = disableParallelToolUse
 				default:

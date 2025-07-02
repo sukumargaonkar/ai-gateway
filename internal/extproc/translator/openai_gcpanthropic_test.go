@@ -380,6 +380,7 @@ func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 		openAIReq          *openai.ChatCompletionRequest
 		expectedTools      []anthropic.ToolUnionParam
 		expectedToolChoice anthropic.ToolChoiceUnionParam
+		disableParallel    bool
 		expectErr          bool
 	}{
 		{

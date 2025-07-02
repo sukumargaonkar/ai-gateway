@@ -537,7 +537,7 @@ type ChatCompletionRequest struct {
 
 	// ParallelToolCalls enables multiple tools to be returned by the model.
 	// Docs: https://platform.openai.com/docs/guides/function-calling/parallel-function-calling
-	ParallelToolCalls bool `json:"parallel_tool_calls,omitempty"` //nolint:tagliatelle //follow openai api
+	ParallelToolCalls *bool `json:"parallel_tool_calls,omitempty"` //nolint:tagliatelle //follow openai api
 
 	// User: A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse.
 	// Docs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-user
