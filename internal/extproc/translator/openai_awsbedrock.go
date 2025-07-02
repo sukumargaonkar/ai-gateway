@@ -187,13 +187,13 @@ func (o *openAIToAWSBedrockTranslatorV1ChatCompletion) openAIMessageToBedrockMes
 				}
 				var format string
 				switch contentType {
-				case MimeTypeImagePNG:
+				case mimeTypeImagePNG:
 					format = "png"
-				case MimeTypeImageJPEG:
+				case mimeTypeImageJPEG:
 					format = "jpeg"
-				case MimeTypeImageGIF:
+				case mimeTypeImageGIF:
 					format = "gif"
-				case MimeTypeImageWEBP:
+				case mimeTypeImageWEBP:
 					format = "webp"
 				default:
 					return nil, fmt.Errorf("unsupported image type: %s please use one of [png, jpeg, gif, webp]",

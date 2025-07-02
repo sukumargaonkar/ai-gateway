@@ -39,8 +39,7 @@ func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_RequestBody(t *testing.T)
             {
                 "text": "You are a helpful assistant"
             }
-        ],
-        "role": "user"
+        ]
     }
 }
 `)
@@ -91,7 +90,7 @@ func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_RequestBody(t *testing.T)
 					{
 						Header: &corev3.HeaderValue{
 							Key:      "Content-Length",
-							RawValue: []byte("199"),
+							RawValue: []byte("185"),
 						},
 					},
 				},

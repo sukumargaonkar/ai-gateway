@@ -555,7 +555,7 @@ func TestExchangeJWTForSTSToken_WithoutAuthOption(t *testing.T) {
 	require.Less(t, timeDiff.Abs(), time.Second*5, "Expiry time should be close to expected value")
 }
 
-// roundTripperFunc implements http.RoundTripper interface for custom response handling
+// roundTripperFunc implements http.RoundTripper interface for custom response handling.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -794,7 +794,7 @@ func TestNewGCPOIDCTokenRotator(t *testing.T) {
 	}
 }
 
-// errorOnCreateClient is a client that returns an error on Create
+// errorOnCreateClient is a client that returns an error on Create.
 type errorOnCreateClient struct {
 	client.Client
 	t *testing.T
@@ -804,7 +804,7 @@ func (c *errorOnCreateClient) Create(_ context.Context, _ client.Object, _ ...cl
 	return fmt.Errorf("create error")
 }
 
-// errorOnUpdateClient is a client that returns an error on Update
+// errorOnUpdateClient is a client that returns an error on Update.
 type errorOnUpdateClient struct {
 	client.Client
 	t *testing.T
@@ -836,7 +836,7 @@ func (c *errorOnUpdateClient) Update(_ context.Context, _ client.Object, _ ...cl
 	return fmt.Errorf("update error")
 }
 
-// errorOnGetClient is a client that returns an error on Get (for testing lookup failures)
+// errorOnGetClient is a client that returns an error on Get (for testing lookup failures).
 type errorOnGetClient struct {
 	client.Client
 	t *testing.T

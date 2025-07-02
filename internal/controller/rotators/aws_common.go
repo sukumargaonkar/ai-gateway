@@ -102,8 +102,8 @@ type awsCredentialsFile struct {
 
 // formatAWSCredentialsFile formats an AWS credential profile into a credentials file.
 // The output follows the standard AWS credentials file format and ensures:
-// - Proper formatting of all credential components
-// - Optional inclusion of session token
+// - Proper formatting of all credential components.
+// - Optional inclusion of session token.
 func formatAWSCredentialsFile(file *awsCredentialsFile) string {
 	var builder strings.Builder
 	builder.WriteString(fmt.Sprintf("[%s]\n", file.creds.profile))

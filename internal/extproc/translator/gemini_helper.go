@@ -32,7 +32,7 @@ const (
 // Request Conversion Helper for OpenAI to GCP Gemini Translator
 // -------------------------------------------------------------
 
-// toGeminiContents converts OpenAI messages to Gemini Contents and SystemInstruction
+// toGeminiContents converts OpenAI messages to Gemini Contents and SystemInstruction.
 func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]genai.Content, *genai.Content, error) {
 	var gcpContents []genai.Content
 	var systemInstruction *genai.Content
@@ -49,7 +49,7 @@ func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]gena
 			}
 			if len(inst) != 0 {
 				if systemInstruction == nil {
-					systemInstruction = &genai.Content{Role: genai.RoleUser}
+					systemInstruction = &genai.Content{}
 				}
 				systemInstruction.Parts = append(systemInstruction.Parts, inst...)
 			}
@@ -62,7 +62,7 @@ func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]gena
 			}
 			if len(inst) != 0 {
 				if systemInstruction == nil {
-					systemInstruction = &genai.Content{Role: genai.RoleUser}
+					systemInstruction = &genai.Content{}
 				}
 				systemInstruction.Parts = append(systemInstruction.Parts, inst...)
 			}
@@ -81,7 +81,7 @@ func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]gena
 			}
 			gcpParts = append(gcpParts, part)
 		case openai.ChatMessageRoleAssistant:
-			// flush any accumulated user/tool parts before assistant
+			// Flush any accumulated user/tool parts before assistant.
 			if len(gcpParts) > 0 {
 				gcpContents = append(gcpContents, genai.Content{Role: genai.RoleUser, Parts: gcpParts})
 				gcpParts = nil
@@ -108,7 +108,7 @@ func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]gena
 }
 
 // systemMsgToDeveloperMsg converts OpenAI system message to developer message.
-// Since systemMsg is deprecated, this function is provided to maintain backward compatibility
+// Since systemMsg is deprecated, this function is provided to maintain backward compatibility.
 func systemMsgToDeveloperMsg(msg openai.ChatCompletionSystemMessageParam) openai.ChatCompletionDeveloperMessageParam {
 	// Convert OpenAI system message to developer message
 	return openai.ChatCompletionDeveloperMessageParam{
@@ -158,7 +158,7 @@ func fromUserMsg(msg openai.ChatCompletionUserMessageParam) ([]*genai.Part, erro
 			case content.ImageContent != nil:
 				imgURL := content.ImageContent.ImageURL.URL
 				if imgURL == "" {
-					// If image URL is empty, we skip it
+					// If image URL is empty, we skip it.
 					continue
 				}
 
@@ -174,8 +174,8 @@ func fromUserMsg(msg openai.ChatCompletionUserMessageParam) ([]*genai.Part, erro
 					}
 					parts = append(parts, genai.NewPartFromBytes(imgBytes, mimeType))
 				} else {
-					// Identify mimeType based in image url
-					mimeType := MimeTypeImageJPEG // Default to jpeg if unknown
+					// Identify mimeType based in image url.
+					mimeType := mimeTypeImageJPEG // Default to jpeg if unknown.
 					if mt := mime.TypeByExtension(path.Ext(imgURL)); mt != "" {
 						mimeType = mt
 					}
@@ -183,7 +183,7 @@ func fromUserMsg(msg openai.ChatCompletionUserMessageParam) ([]*genai.Part, erro
 					parts = append(parts, genai.NewPartFromURI(imgURL, mimeType))
 				}
 			case content.InputAudioContent != nil:
-				// Audio content is currently not supported in this implementation
+				// Audio content is currently not supported in this implementation.
 				return nil, fmt.Errorf("audio content not supported yet")
 			}
 		}
@@ -230,7 +230,7 @@ func fromAssistantMsg(msg openai.ChatCompletionAssistantMessageParam) ([]*genai.
 		parts = append(parts, genai.NewPartFromFunctionCall(toolCall.Function.Name, parsedArgs))
 	}
 
-	// Handle content in the assistant message
+	// Handle content in the assistant message.
 	switch v := msg.Content.Value.(type) {
 	case string:
 		if v != "" {
@@ -244,7 +244,7 @@ func fromAssistantMsg(msg openai.ChatCompletionAssistantMessageParam) ([]*genai.
 					parts = append(parts, genai.NewPartFromText(*contPart.Text))
 				}
 			case openai.ChatCompletionAssistantMessageParamContentTypeRefusal:
-				// Refusal messages are currently ignored in this implementation
+				// Refusal messages are currently ignored in this implementation.
 			default:
 				return nil, nil, fmt.Errorf("unsupported content type in assistant message: %s", contPart.Type)
 			}
@@ -258,7 +258,7 @@ func fromAssistantMsg(msg openai.ChatCompletionAssistantMessageParam) ([]*genai.
 	return parts, knownToolCalls, nil
 }
 
-// toGeminiGenerationConfig converts OpenAI request to Gemini GenerationConfig
+// toGeminiGenerationConfig converts OpenAI request to Gemini GenerationConfig.
 func toGeminiGenerationConfig(openAIReq *openai.ChatCompletionRequest) (*genai.GenerationConfig, error) {
 	if openAIReq == nil {
 		return nil, fmt.Errorf("input request is nil")
@@ -315,7 +315,7 @@ func toGeminiGenerationConfig(openAIReq *openai.ChatCompletionRequest) (*genai.G
 // Response Conversion Helper for GCP Gemini to OpenAI Translator
 // --------------------------------------------------------------
 
-// toOpenAIChoices converts Gemini candidates to OpenAI choices
+// toOpenAIChoices converts Gemini candidates to OpenAI choices.
 func toOpenAIChoices(candidates []*genai.Candidate) ([]openai.ChatCompletionResponseChoice, error) {
 	choices := make([]openai.ChatCompletionResponseChoice, 0, len(candidates))
 
@@ -364,7 +364,7 @@ func toOpenAIChoices(candidates []*genai.Candidate) ([]openai.ChatCompletionResp
 	return choices, nil
 }
 
-// toOpenAIFinishReason converts Gemini finish reason to OpenAI finish reason
+// toOpenAIFinishReason converts Gemini finish reason to OpenAI finish reason.
 func toOpenAIFinishReason(reason genai.FinishReason) openai.ChatCompletionChoicesFinishReason {
 	switch reason {
 	case genai.FinishReasonStop:
@@ -376,7 +376,7 @@ func toOpenAIFinishReason(reason genai.FinishReason) openai.ChatCompletionChoice
 	}
 }
 
-// extractTextParts extracts text from Gemini parts
+// extractTextParts extracts text from Gemini parts.
 func extractTextParts(parts []*genai.Part) string {
 	var text string
 	for _, part := range parts {
@@ -387,7 +387,7 @@ func extractTextParts(parts []*genai.Part) string {
 	return text
 }
 
-// extractToolCalls extracts tool calls from Gemini parts
+// extractToolCalls extracts tool calls from Gemini parts.
 func extractToolCalls(parts []*genai.Part) ([]openai.ChatCompletionMessageToolCallParam, error) {
 	var toolCalls []openai.ChatCompletionMessageToolCallParam
 
@@ -424,7 +424,7 @@ func extractToolCalls(parts []*genai.Part) ([]openai.ChatCompletionMessageToolCa
 	return toolCalls, nil
 }
 
-// toOpenAIUsage converts Gemini usage metadata to OpenAI usage
+// toOpenAIUsage converts Gemini usage metadata to OpenAI usage.
 func toOpenAIUsage(metadata *genai.GenerateContentResponseUsageMetadata) openai.ChatCompletionResponseUsage {
 	if metadata == nil {
 		return openai.ChatCompletionResponseUsage{}
@@ -437,7 +437,7 @@ func toOpenAIUsage(metadata *genai.GenerateContentResponseUsageMetadata) openai.
 	}
 }
 
-// toLogprobs converts Gemini logprobs to OpenAI logprobs
+// toLogprobs converts Gemini logprobs to OpenAI logprobs.
 func toLogprobs(logprobsResult genai.LogprobsResult) openai.ChatCompletionChoicesLogprobs {
 	if len(logprobsResult.ChosenCandidates) == 0 {
 		return openai.ChatCompletionChoicesLogprobs{}

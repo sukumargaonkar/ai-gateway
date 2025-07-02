@@ -104,8 +104,9 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseBody(_ map[strin
 	return headerMutation, bodyMutation, usage, nil
 }
 
+// openAIMessageToGeminiMessage converts an OpenAI ChatCompletionRequest to a GCP Gemini GenerateContentRequest.
 func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) openAIMessageToGeminiMessage(openAIReq *openai.ChatCompletionRequest) (gcp.GenerateContentRequest, error) {
-	// Convert OpenAI messages to Gemini Contents and SystemInstruction
+	// Convert OpenAI messages to Gemini Contents and SystemInstruction.
 	contents, systemInstruction, err := toGeminiContents(openAIReq.Messages)
 	if err != nil {
 		return gcp.GenerateContentRequest{}, err

@@ -116,7 +116,6 @@ func TestToGeminiContents(t *testing.T) {
 					{Text: "This is a developer message"},
 					{Text: "This is a system message"},
 				},
-				Role: genai.RoleUser,
 			},
 		},
 	}
@@ -140,7 +139,7 @@ func TestToGeminiContents(t *testing.T) {
 	}
 }
 
-// TestFromAssistantMsg tests the fromAssistantMsg function
+// TestFromAssistantMsg tests the fromAssistantMsg function.
 func TestFromAssistantMsg(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -491,7 +490,7 @@ func TestFromToolMsg(t *testing.T) {
 	}
 }
 
-// TestFromUserMsg tests the fromUserMsg function with different inputs
+// TestFromUserMsg tests the fromUserMsg function with different inputs.
 func TestFromUserMsg(t *testing.T) {
 	tests := []struct {
 		name           string

@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	MimeTypeImageJPEG = "image/jpeg"
-	MimeTypeImagePNG  = "image/png"
-	MimeTypeImageGIF  = "image/gif"
-	MimeTypeImageWEBP = "image/webp"
+	mimeTypeImageJPEG = "image/jpeg"
+	mimeTypeImagePNG  = "image/png"
+	mimeTypeImageGIF  = "image/gif"
+	mimeTypeImageWEBP = "image/webp"
 )
 
 // regDataURI follows the web uri regex definition.
