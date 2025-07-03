@@ -62,16 +62,10 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseHeaders(headers 
 func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseBody(_ map[string]string, body io.Reader, _ bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, tokenUsage LLMTokenUsage, err error,
 ) {
-	// Read the body
-	bodyBytes, err := io.ReadAll(body)
-	if err != nil {
-		return nil, nil, LLMTokenUsage{}, fmt.Errorf("error reading response body: %w", err)
-	}
-
 	// Parse the GCP response
 	var gcpResp genai.GenerateContentResponse
-	if err = json.Unmarshal(bodyBytes, &gcpResp); err != nil {
-		return nil, nil, LLMTokenUsage{}, fmt.Errorf("error unmarshaling GCP response: %w", err)
+	if err = json.NewDecoder(body).Decode(&gcpResp); err != nil {
+		return nil, nil, LLMTokenUsage{}, err
 	}
 
 	var openAIRespBytes []byte
