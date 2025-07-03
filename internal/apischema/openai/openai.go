@@ -488,6 +488,7 @@ type ChatCompletionRequest struct {
 	// Stop string / array / null Defaults to null
 	// Up to 4 sequences where the API will stop generating further tokens.
 	// Docs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-stop
+	// TODO: this should be *interface
 	Stop []*string `json:"stop,omitempty"`
 
 	// Stream: If set, partial message deltas will be sent, like in ChatGPT.
@@ -519,7 +520,7 @@ type ChatCompletionRequest struct {
 
 	// ParallelToolCalls enables multiple tools to be returned by the model.
 	// Docs: https://platform.openai.com/docs/guides/function-calling/parallel-function-calling
-	ParallelToolCalls bool `json:"parallel_tool_calls,omitempty"` //nolint:tagliatelle //follow openai api
+	ParallelToolCalls *bool `json:"parallel_tool_calls,omitempty"` //nolint:tagliatelle //follow openai api
 
 	// User: A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse.
 	// Docs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-user
