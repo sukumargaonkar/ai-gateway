@@ -155,7 +155,7 @@ func (c *chatCompletionProcessorUpstreamFilter) selectTranslator(out filterapi.V
 	case filterapi.APISchemaGCPGemini:
 		c.translator = translator.NewChatCompletionOpenAIToGCPGeminiTranslator()
 	case filterapi.APISchemaGCPAnthropic:
-		c.translator = translator.NewChatCompletionOpenAIToGCPAnthropicTranslator()
+		c.translator = translator.NewChatCompletionOpenAIToAnthropicTranslator()
 	default:
 		return fmt.Errorf("unsupported API schema: backend=%s", out)
 	}
@@ -262,6 +262,7 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode gzip: %w", err)
 		}
+		// If the response was gzipped, ensure we remove the content-encoding header
 		removeHeaders = append(removeHeaders, "content-encoding")
 	default:
 		br = bytes.NewReader(body.Body)
@@ -271,6 +272,10 @@ func (c *chatCompletionProcessorUpstreamFilter) ProcessResponseBody(ctx context.
 	if err != nil {
 		return nil, fmt.Errorf("failed to transform response: %w", err)
 	}
+	if headerMutation == nil {
+		headerMutation = &extprocv3.HeaderMutation{}
+	}
+	headerMutation.RemoveHeaders = append(headerMutation.RemoveHeaders, removeHeaders...)
 
 	if headerMutation == nil {
 		headerMutation = &extprocv3.HeaderMutation{}
