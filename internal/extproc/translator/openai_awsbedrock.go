@@ -7,11 +7,9 @@ package translator
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -158,25 +156,6 @@ func (o *openAIToAWSBedrockTranslatorV1ChatCompletion) openAIToolsToBedrockToolC
 		}
 	}
 	return nil
-}
-
-// regDataURI follows the web uri regex definition.
-// https://developer.mozilla.org/en-US/docs/Web/URI/Schemes/data#syntax
-var regDataURI = regexp.MustCompile(`\Adata:(.+?)?(;base64)?,`)
-
-// parseDataURI parse data uri example: data:image/jpeg;base64,/9j/4AAQSkZJRgABAgAAZABkAAD.
-func parseDataURI(uri string) (string, []byte, error) {
-	matches := regDataURI.FindStringSubmatch(uri)
-	if len(matches) != 3 {
-		return "", nil, fmt.Errorf("data uri does not have a valid format")
-	}
-	l := len(matches[0])
-	contentType := matches[1]
-	bin, err := base64.StdEncoding.DecodeString(uri[l:])
-	if err != nil {
-		return "", nil, err
-	}
-	return contentType, bin, nil
 }
 
 // openAIMessageToBedrockMessageRoleUser converts openai user role message.
@@ -349,7 +328,8 @@ func (o *openAIToAWSBedrockTranslatorV1ChatCompletion) openAIMessageToBedrockMes
 ) error {
 	// Convert Messages.
 	bedrockReq.Messages = make([]*awsbedrock.Message, 0, len(openAIReq.Messages))
-	for i := range openAIReq.Messages {
+	openAIReqMessageLen, i := len(openAIReq.Messages), 0
+	for i < openAIReqMessageLen {
 		msg := &openAIReq.Messages[i]
 		switch msg.Type {
 		case openai.ChatMessageRoleUser:
@@ -405,10 +385,33 @@ func (o *openAIToAWSBedrockTranslatorV1ChatCompletion) openAIMessageToBedrockMes
 			if err != nil {
 				return err
 			}
+			// Coalesce consecutive tool messages following a user message.
+			for i+1 < openAIReqMessageLen {
+				nextMessage := &openAIReq.Messages[i+1]
+				if nextMessage.Type != openai.ChatMessageRoleTool {
+					break
+				}
+
+				nextToolMessage, ok := nextMessage.Value.(openai.ChatCompletionToolMessageParam)
+				if !ok {
+					return fmt.Errorf("expected ChatCompletionToolMessageParam, got %T", nextMessage.Value)
+				}
+				nextBedrockMessage, err := o.openAIMessageToBedrockMessageRoleTool(&nextToolMessage, awsbedrock.ConversationRoleUser)
+				if err != nil {
+					return err
+				}
+				if len(nextBedrockMessage.Content) > 0 {
+					bedrockMessage.Content = append(bedrockMessage.Content, nextBedrockMessage.Content[0])
+				}
+				i++
+			}
+
 			bedrockReq.Messages = append(bedrockReq.Messages, bedrockMessage)
 		default:
 			return fmt.Errorf("unexpected role: %s", msg.Type)
 		}
+
+		i++
 	}
 	return nil
 }
