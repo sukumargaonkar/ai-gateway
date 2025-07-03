@@ -30,7 +30,7 @@ const (
 
 // -------------------------------------------------------------
 // Request Conversion Helper for OpenAI to GCP Gemini Translator
-// -------------------------------------------------------------
+// -------------------------------------------------------------.
 
 // toGeminiContents converts OpenAI messages to Gemini Contents and SystemInstruction.
 func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]genai.Content, *genai.Content, error) {
@@ -100,7 +100,7 @@ func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]gena
 		}
 	}
 
-	// If there are any remaining parts after processing all messages, add them as user content
+	// If there are any remaining parts after processing all messages, add them as user content.
 	if len(gcpParts) > 0 {
 		gcpContents = append(gcpContents, genai.Content{Role: genai.RoleUser, Parts: gcpParts})
 	}
@@ -110,7 +110,7 @@ func toGeminiContents(messages []openai.ChatCompletionMessageParamUnion) ([]gena
 // systemMsgToDeveloperMsg converts OpenAI system message to developer message.
 // Since systemMsg is deprecated, this function is provided to maintain backward compatibility.
 func systemMsgToDeveloperMsg(msg openai.ChatCompletionSystemMessageParam) openai.ChatCompletionDeveloperMessageParam {
-	// Convert OpenAI system message to developer message
+	// Convert OpenAI system message to developer message.
 	return openai.ChatCompletionDeveloperMessageParam{
 		Name:    msg.Name,
 		Role:    openai.ChatMessageRoleDeveloper,
@@ -219,7 +219,7 @@ func fromToolMsg(msg openai.ChatCompletionToolMessageParam, knownToolCalls map[s
 func fromAssistantMsg(msg openai.ChatCompletionAssistantMessageParam) ([]*genai.Part, map[string]string, error) {
 	var parts []*genai.Part
 
-	// Handle tool calls in the assistant message
+	// Handle tool calls in the assistant message.
 	knownToolCalls := make(map[string]string)
 	for _, toolCall := range msg.ToolCalls {
 		knownToolCalls[toolCall.ID] = toolCall.Function.Name
@@ -250,7 +250,7 @@ func fromAssistantMsg(msg openai.ChatCompletionAssistantMessageParam) ([]*genai.
 			}
 		}
 	case nil:
-		// No content provided, this is valid
+		// No content provided, this is valid.
 	default:
 		return nil, nil, fmt.Errorf("unsupported content type in assistant message: %T", v)
 	}
@@ -310,7 +310,7 @@ func toGeminiGenerationConfig(openAIReq *openai.ChatCompletionRequest) (*genai.G
 
 // --------------------------------------------------------------
 // Response Conversion Helper for GCP Gemini to OpenAI Translator
-// --------------------------------------------------------------
+// --------------------------------------------------------------.
 
 // toOpenAIChoices converts Gemini candidates to OpenAI choices.
 func toOpenAIChoices(candidates []*genai.Candidate) ([]openai.ChatCompletionResponseChoice, error) {
@@ -321,7 +321,7 @@ func toOpenAIChoices(candidates []*genai.Candidate) ([]openai.ChatCompletionResp
 			continue
 		}
 
-		// Create the choice
+		// Create the choice.
 		choice := openai.ChatCompletionResponseChoice{
 			Index:        int64(idx),
 			FinishReason: toOpenAIFinishReason(candidate.FinishReason),
@@ -331,18 +331,18 @@ func toOpenAIChoices(candidates []*genai.Candidate) ([]openai.ChatCompletionResp
 			message := openai.ChatCompletionResponseChoiceMessage{
 				Role: openai.ChatMessageRoleAssistant,
 			}
-			// Extract text from parts
+			// Extract text from parts.
 			content := extractTextParts(candidate.Content.Parts)
 			message.Content = &content
 
-			// Extract tool calls if any
+			// Extract tool calls if any.
 			toolCalls, err := extractToolCalls(candidate.Content.Parts)
 			if err != nil {
 				return nil, fmt.Errorf("error extracting tool calls: %w", err)
 			}
 			message.ToolCalls = toolCalls
 
-			// If there's no content but there are tool calls, set content to nil
+			// If there's no content but there are tool calls, set content to nil.
 			if content == "" && len(toolCalls) > 0 {
 				message.Content = nil
 			}
@@ -350,7 +350,7 @@ func toOpenAIChoices(candidates []*genai.Candidate) ([]openai.ChatCompletionResp
 			choice.Message = message
 		}
 
-		// Handle logprobs if available
+		// Handle logprobs if available.
 		if candidate.LogprobsResult != nil {
 			choice.Logprobs = toLogprobs(*candidate.LogprobsResult)
 		}
@@ -393,13 +393,13 @@ func extractToolCalls(parts []*genai.Part) ([]openai.ChatCompletionMessageToolCa
 			continue
 		}
 
-		// Convert function call arguments to JSON string
+		// Convert function call arguments to JSON string.
 		args, err := json.Marshal(part.FunctionCall.Args)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal function arguments: %w", err)
 		}
 
-		// Generate a random ID for the tool call
+		// Generate a random ID for the tool call.
 		toolCallID := uuid.New().String()
 
 		toolCall := openai.ChatCompletionMessageToolCallParam{
@@ -447,7 +447,7 @@ func toLogprobs(logprobsResult genai.LogprobsResult) openai.ChatCompletionChoice
 
 		var topLogprobs []openai.ChatCompletionTokenLogprobTopLogprob
 
-		// Process top candidates if available
+		// Process top candidates if available.
 		if i < len(logprobsResult.TopCandidates) && logprobsResult.TopCandidates[i] != nil {
 			topCandidates := logprobsResult.TopCandidates[i].Candidates
 			if len(topCandidates) > 0 {
@@ -461,7 +461,7 @@ func toLogprobs(logprobsResult genai.LogprobsResult) openai.ChatCompletionChoice
 			}
 		}
 
-		// Create token logprob
+		// Create token logprob.
 		tokenLogprob := openai.ChatCompletionTokenLogprob{
 			Token:       chosen.Token,
 			Logprob:     float64(chosen.LogProbability),
@@ -471,7 +471,7 @@ func toLogprobs(logprobsResult genai.LogprobsResult) openai.ChatCompletionChoice
 		content = append(content, tokenLogprob)
 	}
 
-	// Return the logprobs
+	// Return the logprobs.
 	return openai.ChatCompletionChoicesLogprobs{
 		Content: content,
 	}

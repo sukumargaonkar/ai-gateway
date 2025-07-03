@@ -3,9 +3,6 @@
 // The full text of the Apache license is available in the LICENSE file at
 // the root of the repo.
 
-// Copyright Envoy AI Gateway Authors
-// SPDX-License-Identifier: Apache-2.0
-
 package translator
 
 import (
@@ -62,7 +59,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseHeaders(headers 
 func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseBody(_ map[string]string, body io.Reader, _ bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, tokenUsage LLMTokenUsage, err error,
 ) {
-	// Parse the GCP response
+	// Parse the GCP response.
 	var gcpResp genai.GenerateContentResponse
 	if err = json.NewDecoder(body).Decode(&gcpResp); err != nil {
 		return nil, nil, LLMTokenUsage{}, err
@@ -70,20 +67,20 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseBody(_ map[strin
 
 	var openAIRespBytes []byte
 	if len(gcpResp.Candidates) > 0 {
-		// Convert to OpenAI format
+		// Convert to OpenAI format.
 		openAIResp, err := o.geminiResponseToOpenAIMessage(gcpResp)
 		if err != nil {
 			return nil, nil, LLMTokenUsage{}, fmt.Errorf("error converting GCP response to OpenAI format: %w", err)
 		}
 
-		// Marshal the OpenAI response
+		// Marshal the OpenAI response.
 		openAIRespBytes, err = json.Marshal(openAIResp)
 		if err != nil {
 			return nil, nil, LLMTokenUsage{}, fmt.Errorf("error marshaling OpenAI response: %w", err)
 		}
 	}
 
-	// Update token usage if available
+	// Update token usage if available.
 	var usage LLMTokenUsage
 	if gcpResp.UsageMetadata != nil {
 		usage = LLMTokenUsage{
@@ -106,7 +103,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) openAIMessageToGeminiMes
 		return gcp.GenerateContentRequest{}, err
 	}
 
-	// Convert generation config
+	// Convert generation config.
 	generationConfig, err := toGeminiGenerationConfig(openAIReq)
 	if err != nil {
 		return gcp.GenerateContentRequest{}, fmt.Errorf("error converting generation config: %w", err)
@@ -124,13 +121,13 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) openAIMessageToGeminiMes
 }
 
 func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) geminiResponseToOpenAIMessage(gcr genai.GenerateContentResponse) (openai.ChatCompletionResponse, error) {
-	// Convert candidates to OpenAI choices
+	// Convert candidates to OpenAI choices.
 	choices, err := toOpenAIChoices(gcr.Candidates)
 	if err != nil {
 		return openai.ChatCompletionResponse{}, fmt.Errorf("error converting choices: %w", err)
 	}
 
-	// Set up the OpenAI response
+	// Set up the OpenAI response.
 	openaiResp := openai.ChatCompletionResponse{
 		Choices: choices,
 		Object:  "chat.completion",

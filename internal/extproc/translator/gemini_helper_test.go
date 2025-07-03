@@ -163,7 +163,7 @@ func TestFromAssistantMsg(t *testing.T) {
 			name: "invalid content type",
 			msg: openai.ChatCompletionAssistantMessageParam{
 				Content: openai.StringOrAssistantRoleContentUnion{
-					Value: 10, // Invalid type
+					Value: 10, // Invalid type.
 				},
 				Role: openai.ChatMessageRoleAssistant,
 			},
@@ -184,7 +184,7 @@ func TestFromAssistantMsg(t *testing.T) {
 			},
 			expectedToolCalls: map[string]string{},
 		},
-		// Currently noting is returned for refusal messages
+		// Currently noting is returned for refusal messages.
 		{
 			name: "text content with refusal message",
 			msg: openai.ChatCompletionAssistantMessageParam{
@@ -304,7 +304,7 @@ func TestFromAssistantMsg(t *testing.T) {
 						ID: "call_def",
 						Function: openai.ChatCompletionMessageToolCallFunctionParam{
 							Name:      "get_weather",
-							Arguments: `{"location":"New York"`, // Invalid JSON
+							Arguments: `{"location":"New York"`, // Invalid JSON.
 						},
 						Type: openai.ChatCompletionMessageToolCallTypeFunction,
 					},
@@ -381,7 +381,7 @@ func TestFromDeveloperMsg(t *testing.T) {
 			name: "invalid content type",
 			msg: openai.ChatCompletionDeveloperMessageParam{
 				Content: openai.StringOrArray{
-					Value: 10, // Invalid type
+					Value: 10, // Invalid type.
 				},
 				Role: openai.ChatMessageRoleSystem,
 			},
@@ -421,7 +421,7 @@ func TestFromToolMsg(t *testing.T) {
 			name: "Tool message with invalid content",
 			msg: openai.ChatCompletionToolMessageParam{
 				Content: openai.StringOrArray{
-					Value: 10, // Invalid type
+					Value: 10, // Invalid type.
 				},
 				Role:       openai.ChatMessageRoleTool,
 				ToolCallID: "tool_123",
@@ -699,7 +699,7 @@ func TestFromUserMsg(t *testing.T) {
 			msg: openai.ChatCompletionUserMessageParam{
 				Role: openai.ChatMessageRoleUser,
 				Content: openai.StringOrUserRoleContentUnion{
-					Value: 42, // not a string or array
+					Value: 42, // not a string or array.
 				},
 			},
 			expectedErrMsg: "unsupported content type in user message: int",
