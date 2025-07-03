@@ -18,9 +18,10 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
-	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/tidwall/sjson"
+
+	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
 // currently a requirement for GCP Vertex / Anthropic API https://docs.anthropic.com/en/api/claude-on-vertex-ai
@@ -294,6 +295,16 @@ func extractSystemPromptFromDeveloperMsg(msg openai.ChatCompletionDeveloperMessa
 	return ""
 }
 
+// systemMsgToDeveloperMsg is a helper to convert an OpenAI system message
+// into a developer message to consolidate processing logic.
+func systemMsgToDeveloperMsg(msg openai.ChatCompletionSystemMessageParam) openai.ChatCompletionDeveloperMessageParam {
+	return openai.ChatCompletionDeveloperMessageParam{
+		Name:    msg.Name,
+		Role:    openai.ChatMessageRoleDeveloper,
+		Content: msg.Content,
+	}
+}
+
 func anthropicRoleToOpenAIRole(role anthropic.MessageParamRole) (string, error) {
 	switch role {
 	case anthropic.MessageParamRoleAssistant:
@@ -352,7 +363,6 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 
 // openAIToAnthropicMessages converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic
 func openAIToAnthropicMessages(openAIMsgs []openai.ChatCompletionMessageParamUnion) (anthropicMessages []anthropic.MessageParam, systemBlocks []anthropic.TextBlockParam, err error) {
-
 	for i := range openAIMsgs {
 		msg := openAIMsgs[i]
 		switch msg.Type {
@@ -409,8 +419,8 @@ func openAIToAnthropicMessages(openAIMsgs []openai.ChatCompletionMessageParamUni
 				ToolUseID: toolMsg.ToolCallID,
 				Type:      "tool_result",
 				Content:   toolContent,
-				//TODO: how to get isError from openAI?
-				//IsError:  anthropic.Bool(false),
+				// TODO: how to get isError from openAI?
+				// IsError:  anthropic.Bool(false),
 			}
 			anthropicMsg := anthropic.MessageParam{
 				Role: anthropic.MessageParamRoleUser,
