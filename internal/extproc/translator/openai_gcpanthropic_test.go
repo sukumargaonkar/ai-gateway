@@ -51,18 +51,18 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		require.NotNil(t, hm)
 		require.NotNil(t, bm)
 
-		// Check the path header
+		// Check the path header.
 		pathHeader := hm.SetHeaders[0]
 		require.Equal(t, ":path", pathHeader.Header.Key)
-		expectedPath := fmt.Sprintf("/models/%s:rawPredict", openAIReq.Model)
+		expectedPath := fmt.Sprintf("publishers/anthropic/models/%s:rawPredict", openAIReq.Model)
 		require.Equal(t, expectedPath, string(pathHeader.Header.RawValue))
 
-		// Check the body content
+		// Check the body content.
 		body := bm.GetBody()
 		require.NotNil(t, body)
-		// Model should NOT be present in the body
+		// Model should NOT be present in the body for GCP Vertex.
 		require.False(t, gjson.GetBytes(body, "model").Exists())
-		// Anthropic version should be present
+		// Anthropic version should be present for GCP Vertex.
 		require.Equal(t, anthropicVersion, gjson.GetBytes(body, "anthropic_version").String())
 	})
 
@@ -78,7 +78,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 								{TextContent: &openai.ChatCompletionContentPartTextParam{Text: "What is in this image?"}},
 								{ImageContent: &openai.ChatCompletionContentPartImageParam{
 									ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
-										URL: "data:image/jpeg;base64,dGVzdA==", // "test" in base64
+										URL: "data:image/jpeg;base64,dGVzdA==", // "test" in base64.
 									},
 								}},
 							},
@@ -130,7 +130,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		translator := NewChatCompletionOpenAIToAnthropicTranslator()
 		_, _, err := translator.RequestBody(nil, streamReq, false)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), streamingNotSupportedError)
+		require.Contains(t, err.Error(), errStreamingNotSupported.Error())
 	})
 
 	t.Run("Invalid Temperature", func(t *testing.T) {
@@ -146,12 +146,12 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		require.Contains(t, err.Error(), fmt.Sprintf(tempNotSupportedError, *invalidTempReq.Temperature))
 	})
 
-	// Test for missing required parameter
+	// Test for missing required parameter.
 	t.Run("Missing MaxTokens Uses Default", func(t *testing.T) {
 		missingTokensReq := &openai.ChatCompletionRequest{
 			Model:     claudeTestModel,
 			Messages:  []openai.ChatCompletionMessageParamUnion{},
-			MaxTokens: nil, // Missing
+			MaxTokens: nil,
 		}
 		translator := NewChatCompletionOpenAIToAnthropicTranslator()
 		_, bm, err := translator.RequestBody(nil, missingTokensReq, false)
@@ -258,9 +258,9 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_ResponseBody(t *testing.
 			require.NoError(t, err)
 
 			expectedTokenUsage := LLMTokenUsage{
-				InputTokens:  uint32(tt.expectedOpenAIResponse.Usage.PromptTokens),
-				OutputTokens: uint32(tt.expectedOpenAIResponse.Usage.CompletionTokens),
-				TotalTokens:  uint32(tt.expectedOpenAIResponse.Usage.TotalTokens),
+				InputTokens:  uint32(tt.expectedOpenAIResponse.Usage.PromptTokens),     //nolint:gosec
+				OutputTokens: uint32(tt.expectedOpenAIResponse.Usage.CompletionTokens), //nolint:gosec
+				TotalTokens:  uint32(tt.expectedOpenAIResponse.Usage.TotalTokens),      //nolint:gosec
 			}
 			require.Equal(t, expectedTokenUsage, usedToken)
 
@@ -353,7 +353,7 @@ func TestOpenAIToGCPAnthropicTranslator_ResponseError(t *testing.T) {
 	}
 }
 
-// New test function for helper coverage
+// New test function for helper coverage.
 func TestHelperFunctions(t *testing.T) {
 	t.Run("anthropicToOpenAIFinishReason invalid reason", func(t *testing.T) {
 		_, err := anthropicToOpenAIFinishReason("unknown_reason")
@@ -531,7 +531,7 @@ func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 					require.Equal(t, tt.expectedTools[0].GetType(), tools[0].GetType())
 					require.Equal(t, tt.expectedTools[0].GetDescription(), tools[0].GetDescription())
 					if tt.expectedTools[0].GetInputSchema().Properties != nil {
-						require.EqualValues(t, tt.expectedTools[0].GetInputSchema().Properties, tools[0].GetInputSchema().Properties)
+						require.Equal(t, tt.expectedTools[0].GetInputSchema().Properties, tools[0].GetInputSchema().Properties)
 					}
 				}
 			}

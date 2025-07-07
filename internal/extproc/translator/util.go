@@ -41,14 +41,10 @@ func parseDataURI(uri string) (string, []byte, error) {
 	return contentType, bin, nil
 }
 
-func getGCPPath(model, specifier string) string {
-	return fmt.Sprintf("/models/%s:%s", model, specifier)
-}
-
 // buildGCPRequestMutations creates header and body mutations for GCP requests
 // It sets the ":path" header, the "content-length" header and the request body.
 func buildGCPRequestMutations(path string, reqBody []byte) (*ext_procv3.HeaderMutation, *ext_procv3.BodyMutation) {
-	// Create header mutation
+	// Create header mutation.
 	headerMutation := &ext_procv3.HeaderMutation{
 		SetHeaders: []*corev3.HeaderValueOption{
 			{
@@ -66,7 +62,7 @@ func buildGCPRequestMutations(path string, reqBody []byte) (*ext_procv3.HeaderMu
 		},
 	}
 
-	// Create body mutation
+	// Create body mutation.
 	bodyMutation := &ext_procv3.BodyMutation{
 		Mutation: &ext_procv3.BodyMutation_Body{Body: reqBody},
 	}

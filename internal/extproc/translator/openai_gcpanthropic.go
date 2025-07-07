@@ -3,14 +3,13 @@
 // The full text of the Apache license is available in the LICENSE file at
 // the root of the repo.
 
-// Copyright Envoy AI Gateway Authors
-// SPDX-License-Identifier: Apache-2.0
-
 package translator
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -26,20 +25,21 @@ import (
 
 // currently a requirement for GCP Vertex / Anthropic API https://docs.anthropic.com/en/api/claude-on-vertex-ai
 const (
-	anthropicVersion           = "vertex-2023-10-16"
-	gcpBackendError            = "GCPBackendError"
-	defaultMaxTokens           = int64(100)
-	streamingNotSupportedError = "streaming is not yet supported for GCP Anthropic translation"
-	tempNotSupportedError      = "temperature %.2f is not supported by Anthropic (must be between 0.0 and 1.0)"
+	anthropicVersion      = "vertex-2023-10-16"
+	gcpBackendError       = "GCPBackendError"
+	defaultMaxTokens      = int64(100)
+	tempNotSupportedError = "temperature %.2f is not supported by Anthropic (must be between 0.0 and 1.0)"
 )
 
-// openAIToAnthropicTranslatorV1ChatCompletion where we can store information for streaming requests
+var errStreamingNotSupported = errors.New("streaming is not yet supported for GCP Anthropic translation")
+
+// openAIToAnthropicTranslatorV1ChatCompletion where we can store information for streaming requests.
 type openAIToAnthropicTranslatorV1ChatCompletion struct{}
 
-// TranslatorOption defines a function that configures the translator.
-type TranslatorOption func(*openAIToAnthropicTranslatorV1ChatCompletion)
+// Option defines a function that configures the translator.
+type Option func(*openAIToAnthropicTranslatorV1ChatCompletion)
 
-// AnthropicContent Anthropic request/response structs
+// AnthropicContent Anthropic request/response structs.
 type AnthropicContent struct {
 	Type   string                            `json:"type"`
 	Text   string                            `json:"text"`
@@ -80,7 +80,7 @@ func validateTemperatureForAnthropic(temp *float64) error {
 	return nil
 }
 
-// Helper: Convert []*string to []string for stop sequences
+// Helper: Convert []*string to []string for stop sequences.
 func extractStopSequencesFromPtrSlice(stop []*string) ([]string, error) {
 	if stop == nil {
 		return nil, nil
@@ -141,7 +141,7 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 
 			toolParam.InputSchema = anthropic.ToolInputSchemaParam{
 				Properties: inputSchema,
-				// TODO: how/should we support this
+				// TODO: support extra fields.
 				ExtraFields: nil,
 			}
 
@@ -157,8 +157,8 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 		// see: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/implement-tool-use#parallel-tool-use
 		disableParallelToolUse := anthropic.Bool(false)
 		if parallelToolCalls != nil {
-			// openAI variable checks to allow parallel tool calls,
-			// anthropic variable checks to disable, so need to use the inverse
+			// OpenAI variable checks to allow parallel tool calls.
+			// Anthropic variable checks to disable, so need to use the inverse.
 			disableParallelToolUse = anthropic.Bool(!*parallelToolCalls)
 		}
 		if openAIToolChoice != nil {
@@ -192,7 +192,7 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 	return
 }
 
-// Helper: Convert OpenAI message content to Anthropic content (extended for all types)
+// Helper: Convert OpenAI message content to Anthropic content (extended for all types).
 func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockParamUnion, error) {
 	switch v := content.(type) {
 	case nil:
@@ -212,28 +212,32 @@ func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockPara
 				resultContent = append(resultContent, anthropic.NewTextBlock(contentPart.TextContent.Text))
 			case contentPart.ImageContent != nil:
 				imageURL := contentPart.ImageContent.ImageURL.URL
-				if isDataURI(imageURL) {
+				switch {
+				case isDataURI(imageURL):
 					contentType, data, err := parseDataURI(imageURL)
 					if err != nil {
 						return nil, fmt.Errorf("failed to parse image URL: %w", err)
 					}
-					appPDF := constant.ValueOf[constant.ApplicationPDF]()
 					base64Data := base64.StdEncoding.EncodeToString(data)
-					if contentType == string(appPDF) {
+					appPDF := string(constant.ValueOf[constant.ApplicationPDF]())
+					switch contentType {
+					case appPDF:
 						pdfSource := anthropic.Base64PDFSourceParam{
 							Data: base64Data,
 						}
 						resultContent = append(resultContent, anthropic.NewDocumentBlock(pdfSource))
-					} else if isSupportedImageMediaType(contentType) {
-						resultContent = append(resultContent, anthropic.NewImageBlockBase64(contentType, base64Data))
-					} else {
-						return nil, fmt.Errorf("invalid media_type for image '%s'", contentType)
+					default:
+						if isSupportedImageMediaType(contentType) {
+							resultContent = append(resultContent, anthropic.NewImageBlockBase64(contentType, base64Data))
+						} else {
+							return nil, fmt.Errorf("invalid media_type for image '%s'", contentType)
+						}
 					}
-				} else if strings.HasSuffix(strings.ToLower(imageURL), ".pdf") {
+				case strings.HasSuffix(strings.ToLower(imageURL), ".pdf"):
 					resultContent = append(resultContent, anthropic.NewDocumentBlock(anthropic.URLPDFSourceParam{
 						URL: imageURL,
 					}))
-				} else {
+				default:
 					resultContent = append(resultContent, anthropic.NewImageBlock(anthropic.URLImageSourceParam{
 						URL: imageURL,
 					}))
@@ -266,7 +270,7 @@ func extractSystemPromptFromDeveloperMsg(msg openai.ChatCompletionDeveloperMessa
 	case string:
 		return v
 	case []openai.ChatCompletionContentPartUserUnionParam:
-		// Concatenate all text parts for completeness
+		// Concatenate all text parts for completeness.
 		var sb strings.Builder
 		for _, part := range v {
 			if part.TextContent != nil {
@@ -338,7 +342,7 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 		}
 	}
 
-	// Handle tool_calls (if any)
+	// Handle tool_calls (if any).
 	for i := range openAiMessage.ToolCalls {
 		toolCall := &openAiMessage.ToolCalls[i]
 		var input map[string]interface{}
@@ -361,7 +365,7 @@ func openAIMessageToAnthropicMessageRoleAssistant(openAiMessage *openai.ChatComp
 	}, nil
 }
 
-// openAIToAnthropicMessages converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic
+// openAIToAnthropicMessages converts OpenAI messages to Anthropic message params type, handling all roles and system/developer logic.
 func openAIToAnthropicMessages(openAIMsgs []openai.ChatCompletionMessageParamUnion) (anthropicMessages []anthropic.MessageParam, systemBlocks []anthropic.TextBlockParam, err error) {
 	for i := range openAIMsgs {
 		msg := openAIMsgs[i]
@@ -395,7 +399,6 @@ func openAIToAnthropicMessages(openAIMsgs []openai.ChatCompletionMessageParamUni
 			if err != nil {
 				return
 			}
-			// TODO: check works with multi tool
 			anthropicMessages = append(anthropicMessages, *messages)
 		case openai.ChatMessageRoleTool:
 			toolMsg := msg.Value.(openai.ChatCompletionToolMessageParam)
@@ -419,8 +422,7 @@ func openAIToAnthropicMessages(openAIMsgs []openai.ChatCompletionMessageParamUni
 				ToolUseID: toolMsg.ToolCallID,
 				Type:      "tool_result",
 				Content:   toolContent,
-				// TODO: how to get isError from openAI?
-				// IsError:  anthropic.Bool(false),
+				// IsError:  anthropic.Bool(false), TODO: Should we support isError from openAI.
 			}
 			anthropicMsg := anthropic.MessageParam{
 				Role: anthropic.MessageParamRoleUser,
@@ -439,7 +441,7 @@ func openAIToAnthropicMessages(openAIMsgs []openai.ChatCompletionMessageParamUni
 
 // buildAnthropicParams is a helper function that translates an OpenAI request
 // into the parameter struct required by the Anthropic SDK.
-func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anthropic.MessageNewParams, error error) {
+func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anthropic.MessageNewParams, err error) {
 	// 1. Handle simple parameters and defaults.
 	maxTokens := defaultMaxTokens
 	if openAIReq.MaxCompletionTokens != nil {
@@ -448,14 +450,14 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anth
 		maxTokens = *openAIReq.MaxTokens
 	}
 
-	// Translate openAI contents to anthropic params
-	// 2. Translate messages and system prompts
+	// Translate openAI contents to anthropic params.
+	// 2. Translate messages and system prompts.
 	messages, systemBlocks, err := openAIToAnthropicMessages(openAIReq.Messages)
 	if err != nil {
 		return
 	}
 
-	// Translate tools and tool choice
+	// Translate tools and tool choice.
 	tools, toolChoice, err := translateOpenAItoAnthropicTools(openAIReq.Tools, openAIReq.ToolChoice, openAIReq.ParallelToolCalls)
 	if err != nil {
 		return
@@ -494,8 +496,11 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anth
 
 // RequestBody implements [Translator.RequestBody] for GCP.
 func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, _ bool) (
-	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
+	*extprocv3.HeaderMutation, *extprocv3.BodyMutation, error,
 ) {
+	incomingReqBytes, _ := json.Marshal(openAIReq)
+	fmt.Printf("Incoming OpenAI request body: %s", string(incomingReqBytes))
+
 	params, err := buildAnthropicParams(openAIReq)
 	if err != nil {
 		return nil, nil, err
@@ -506,23 +511,25 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 		return nil, nil, err
 	}
 
-	// TODO: add stream support
-	// --- VERTEX AI PATH ---
+	// TODO: add stream support.
+
+	// GCP VERTEX PATH.
 	specifier := "rawPredict"
 	if openAIReq.Stream {
-		// specifier = "streamRawPredict"
-		return nil, nil, fmt.Errorf(streamingNotSupportedError)
+		// TODO: specifier = "streamRawPredict" - use this when implementing streaming.
+		return nil, nil, errStreamingNotSupported
 	}
 
-	// TODO: remove before merge - use util method
-	model := strings.TrimPrefix(openAIReq.Model, "gcp.")
-	gcpPath := getGCPPath(model, specifier)
-
+	pathSuffix := buildGCPModelPathSuffix(GCPModelPublisherAnthropic, strings.TrimPrefix(openAIReq.Model, "gcp."), specifier)
+	fmt.Println("pathsuff", pathSuffix)
 	// b. Set the "anthropic_version" key in the JSON body
 	// Using same logic as anthropic go SDK: https://github.com/anthropics/anthropic-sdk-go/blob/main/vertex/vertex.go#L78
 	body, _ = sjson.SetBytes(body, "anthropic_version", anthropicVersion)
 
-	headerMutation, bodyMutation = buildGCPRequestMutations(gcpPath, body)
+	fmt.Printf("\nFinal request path being sent: %s\n", pathSuffix)
+	fmt.Printf("\nFinal request body being sent: %s\n", string(body))
+
+	headerMutation, bodyMutation := buildGCPRequestMutations(pathSuffix, body)
 	return headerMutation, bodyMutation, nil
 }
 
@@ -616,9 +623,25 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers ma
 func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeaders map[string]string, body io.Reader, endOfStream bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, tokenUsage LLMTokenUsage, err error,
 ) {
+	// Print the response headers to see if content-encoding is present.
+	fmt.Printf("Response headers received: %v", respHeaders)
+
+	// Read the entire body into a byte slice so we can inspect it without consuming the stream.
+	bodyBytes, err := io.ReadAll(body)
+	if err != nil {
+		return nil, nil, LLMTokenUsage{}, fmt.Errorf("failed to read response body for debugging: %w", err)
+	}
+
+	// Print the raw response body to the console.
+	fmt.Printf("Raw response body received: %s", string(bodyBytes))
+
+	// Create a new reader from the byte slice to be used by the rest of the function.
+	body = bytes.NewBuffer(bodyBytes)
+
+	_ = endOfStream
 	if statusStr, ok := respHeaders[statusHeaderName]; ok {
 		var status int
-		// Use the outer 'err' to catch parsing errors
+		// Use the outer 'err' to catch parsing errors.
 		if status, err = strconv.Atoi(statusStr); err == nil {
 			if !isGoodStatusCode(status) {
 				// Let ResponseError handle the translation. It returns its own internal error status.
@@ -642,9 +665,9 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeaders m
 		Choices: make([]openai.ChatCompletionResponseChoice, 0),
 	}
 	tokenUsage = LLMTokenUsage{
-		InputTokens:  uint32(anthropicResp.Usage.InputTokens),
-		OutputTokens: uint32(anthropicResp.Usage.OutputTokens),
-		TotalTokens:  uint32(anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens),
+		InputTokens:  uint32(anthropicResp.Usage.InputTokens),                                    //nolint:gosec
+		OutputTokens: uint32(anthropicResp.Usage.OutputTokens),                                   //nolint:gosec
+		TotalTokens:  uint32(anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens), //nolint:gosec
 	}
 	openAIResp.Usage = openai.ChatCompletionResponseUsage{
 		CompletionTokens: int(anthropicResp.Usage.OutputTokens),
@@ -690,5 +713,6 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeaders m
 
 	headerMutation = &extprocv3.HeaderMutation{}
 	setContentLength(headerMutation, mut.Body)
+
 	return headerMutation, &extprocv3.BodyMutation{Mutation: mut}, tokenUsage, nil
 }
