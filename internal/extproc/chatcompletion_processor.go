@@ -93,9 +93,9 @@ func (c *chatCompletionProcessorRouterFilter) ProcessResponseBody(ctx context.Co
 	// If the request failed to route and/or immediate response was returned before the upstream filter was set,
 	// c.upstreamFilter can be nil.
 
-	//if c.upstreamFilter != nil { // See the comment on the "upstreamFilter" field.
-	//	return c.upstreamFilter.ProcessResponseBody(ctx, body)
-	//}
+	if c.upstreamFilter != nil { // See the comment on the "upstreamFilter" field.
+		return c.upstreamFilter.ProcessResponseBody(ctx, body)
+	}
 	return c.passThroughProcessor.ProcessResponseBody(ctx, body)
 }
 
@@ -198,8 +198,7 @@ func (c *chatCompletionProcessorUpstreamFilter) selectTranslator(out filterapi.V
 // So, we simply do the translation and upstream auth at this stage, and send them back to Envoy
 // with the status CONTINUE_AND_REPLACE. This will allows Envoy to not send the request body again
 // to the extproc.
-func (c *chatCompletionProcessorUpstreamFilter) ProcessRequestHeaders(ctx context.Context, _ *corev3.HeaderMap) (res *extprocv3.ProcessingResponse, err error) {
-
+func (c *chatCompletionProcessorUpstreamFilter) ProcessRequestHeaders(_ context.Context, _ *corev3.HeaderMap) (res *extprocv3.ProcessingResponse, err error) {
 	return &extprocv3.ProcessingResponse{
 		Response: &extprocv3.ProcessingResponse_RequestHeaders{
 			RequestHeaders: &extprocv3.HeadersResponse{

@@ -271,6 +271,182 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_ResponseBody(t *testing.
 	}
 }
 
+// TestMessageTranslation adds specific coverage for assistant and tool message translations.
+func TestMessageTranslation(t *testing.T) {
+	tests := []struct {
+		name                  string
+		inputMessages         []openai.ChatCompletionMessageParamUnion
+		expectedAnthropicMsgs []anthropic.MessageParam
+		expectedSystemBlocks  []anthropic.TextBlockParam
+		expectErr             bool
+	}{
+		{
+			name: "assistant message with text",
+			inputMessages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleAssistant,
+					Value: openai.ChatCompletionAssistantMessageParam{
+						Content: openai.StringOrAssistantRoleContentUnion{Value: "Hello from the assistant."},
+					},
+				},
+			},
+			expectedAnthropicMsgs: []anthropic.MessageParam{
+				{
+					Role:    anthropic.MessageParamRoleAssistant,
+					Content: []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock("Hello from the assistant.")},
+				},
+			},
+		},
+		{
+			name: "assistant message with tool call",
+			inputMessages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleAssistant,
+					Value: openai.ChatCompletionAssistantMessageParam{
+						ToolCalls: []openai.ChatCompletionMessageToolCallParam{
+							{
+								ID:       "tool_123",
+								Type:     openai.ChatCompletionMessageToolCallTypeFunction,
+								Function: openai.ChatCompletionMessageToolCallFunctionParam{Name: "get_weather", Arguments: `{"location":"NYC"}`},
+							},
+						},
+					},
+				},
+			},
+			expectedAnthropicMsgs: []anthropic.MessageParam{
+				{
+					Role: anthropic.MessageParamRoleAssistant,
+					Content: []anthropic.ContentBlockParamUnion{
+						{
+							OfToolUse: &anthropic.ToolUseBlockParam{
+								ID:    "tool_123",
+								Type:  "tool_use",
+								Name:  "get_weather",
+								Input: map[string]interface{}{"location": "NYC"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "assistant message with refusal",
+			inputMessages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleAssistant,
+					Value: openai.ChatCompletionAssistantMessageParam{
+						Content: openai.StringOrAssistantRoleContentUnion{
+							Value: openai.ChatCompletionAssistantMessageParamContent{
+								Type:    openai.ChatCompletionAssistantMessageParamContentTypeRefusal,
+								Refusal: ptr.To("I cannot answer that."),
+							},
+						},
+					},
+				},
+			},
+			expectedAnthropicMsgs: []anthropic.MessageParam{
+				{
+					Role:    anthropic.MessageParamRoleAssistant,
+					Content: []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock("I cannot answer that.")},
+				},
+			},
+		},
+		{
+			name: "tool message with text content",
+			inputMessages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleTool,
+					Value: openai.ChatCompletionToolMessageParam{
+						ToolCallID: "tool_abc",
+						Content:    openai.StringOrArray{Value: "The weather is 72 degrees and sunny."},
+					},
+				},
+			},
+			expectedAnthropicMsgs: []anthropic.MessageParam{
+				{
+					Role: anthropic.MessageParamRoleUser,
+					Content: []anthropic.ContentBlockParamUnion{
+						{
+							OfToolResult: &anthropic.ToolResultBlockParam{
+								ToolUseID: "tool_abc",
+								Type:      "tool_result",
+								Content: []anthropic.ToolResultBlockParamContentUnion{
+									{OfText: &anthropic.TextBlockParam{Text: "The weather is 72 degrees and sunny.", Type: "text"}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "system and developer messages",
+			inputMessages: []openai.ChatCompletionMessageParamUnion{
+				{Type: openai.ChatMessageRoleSystem, Value: openai.ChatCompletionSystemMessageParam{Content: openai.StringOrArray{Value: "System prompt."}}},
+				{Type: openai.ChatMessageRoleUser, Value: openai.ChatCompletionUserMessageParam{Content: openai.StringOrUserRoleContentUnion{Value: "User message."}}},
+				{Type: openai.ChatMessageRoleDeveloper, Value: openai.ChatCompletionDeveloperMessageParam{Content: openai.StringOrArray{Value: "Developer prompt."}}},
+			},
+			expectedAnthropicMsgs: []anthropic.MessageParam{
+				{
+					Role:    anthropic.MessageParamRoleUser,
+					Content: []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock("User message.")},
+				},
+			},
+			expectedSystemBlocks: []anthropic.TextBlockParam{
+				{Text: "System prompt."},
+				{Text: "Developer prompt."},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			openAIReq := &openai.ChatCompletionRequest{Messages: tt.inputMessages}
+			anthropicMsgs, systemBlocks, err := openAIToAnthropicMessages(openAIReq.Messages)
+
+			if tt.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				// Compare the conversational messages
+				require.Len(t, anthropicMsgs, len(tt.expectedAnthropicMsgs), "Number of translated messages should match")
+				for i, expectedMsg := range tt.expectedAnthropicMsgs {
+					actualMsg := anthropicMsgs[i]
+					require.Equal(t, expectedMsg.Role, actualMsg.Role, "Message roles should match")
+					require.Len(t, actualMsg.Content, len(expectedMsg.Content), "Number of content blocks should match")
+					for j, expectedContent := range expectedMsg.Content {
+						actualContent := actualMsg.Content[j]
+						require.Equal(t, expectedContent.GetType(), actualContent.GetType(), "Content block types should match")
+						if expectedContent.OfText != nil {
+							require.NotNil(t, actualContent.OfText)
+							require.Equal(t, expectedContent.OfText.Text, actualContent.OfText.Text)
+						}
+						if expectedContent.OfToolUse != nil {
+							require.NotNil(t, actualContent.OfToolUse)
+							require.Equal(t, expectedContent.OfToolUse.ID, actualContent.OfToolUse.ID)
+							require.Equal(t, expectedContent.OfToolUse.Name, actualContent.OfToolUse.Name)
+							require.Equal(t, expectedContent.OfToolUse.Input, actualContent.OfToolUse.Input)
+						}
+						if expectedContent.OfToolResult != nil {
+							require.NotNil(t, actualContent.OfToolResult)
+							require.Equal(t, expectedContent.OfToolResult.ToolUseID, actualContent.OfToolResult.ToolUseID)
+							require.Len(t, actualContent.OfToolResult.Content, len(expectedContent.OfToolResult.Content))
+							require.Equal(t, expectedContent.OfToolResult.Content[0].OfText.Text, actualContent.OfToolResult.Content[0].OfText.Text)
+						}
+					}
+				}
+
+				// Compare the system prompt blocks
+				require.Len(t, systemBlocks, len(tt.expectedSystemBlocks), "Number of system blocks should match")
+				for i, expectedBlock := range tt.expectedSystemBlocks {
+					actualBlock := systemBlocks[i]
+					require.Equal(t, expectedBlock.Text, actualBlock.Text, "System block text should match")
+				}
+			}
+		})
+	}
+}
+
 func TestOpenAIToGCPAnthropicTranslator_ResponseError(t *testing.T) {
 	tests := []struct {
 		name            string

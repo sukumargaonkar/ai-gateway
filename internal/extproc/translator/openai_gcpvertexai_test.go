@@ -63,9 +63,17 @@ func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_RequestBody(t *testing.T)
 							RawValue: []byte("publishers/google/models/gemini-pro:generateContent"),
 						},
 					},
+					{
+						Header: &corev3.HeaderValue{
+							Key:      "content-length",
+							RawValue: []byte("0"),
+						},
+					},
 				},
 			},
-			wantBodyMut: nil,
+			wantBodyMut: &extprocv3.BodyMutation{
+				Mutation: &extprocv3.BodyMutation_Body{Body: []byte("")},
+			},
 		},
 	}
 
@@ -83,7 +91,7 @@ func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_RequestBody(t *testing.T)
 				t.Errorf("HeaderMutation mismatch (-want +got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantBodyMut, bodyMut); diff != "" {
+			if diff := cmp.Diff(tc.wantBodyMut.String(), bodyMut.String()); diff != "" {
 				t.Errorf("BodyMutation mismatch (-want +got):\n%s", diff)
 			}
 		})
