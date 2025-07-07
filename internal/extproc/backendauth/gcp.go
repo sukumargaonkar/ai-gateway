@@ -64,6 +64,7 @@ func (g *gcpHandler) Do(_ context.Context, _ map[string]string, headerMut *extpr
 			if len(hdr.Header.RawValue) > 0 {
 				suffixPath := string(hdr.Header.RawValue)
 				path := fmt.Sprintf("%s/%s", prefixPath, suffixPath)
+				fmt.Println(path)
 				hdr.Header.RawValue = []byte(path)
 			}
 			break
