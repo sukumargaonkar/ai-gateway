@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"google.golang.org/genai"
@@ -56,13 +57,24 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseHeaders(headers 
 
 // ResponseBody implements [Translator.ResponseBody] for GCP Gemini.
 // This method translates a GCP Gemini API response to the OpenAI ChatCompletion format.
-func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseBody(_ map[string]string, body io.Reader, _ bool) (
+func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseBody(respHeaders map[string]string, body io.Reader, _ bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, tokenUsage LLMTokenUsage, err error,
 ) {
+	if statusStr, ok := respHeaders[statusHeaderName]; ok {
+		var status int
+		if status, err = strconv.Atoi(statusStr); err == nil {
+			if !isGoodStatusCode(status) {
+				// TODO: Parse GCP error response and convert to OpenAI error format.
+				// For now, just return error response as-is.
+				return nil, nil, LLMTokenUsage{}, err
+			}
+		}
+	}
+
 	// Parse the GCP response.
 	var gcpResp genai.GenerateContentResponse
 	if err = json.NewDecoder(body).Decode(&gcpResp); err != nil {
-		return nil, nil, LLMTokenUsage{}, err
+		return nil, nil, LLMTokenUsage{}, fmt.Errorf("error decoding GCP response: %w", err)
 	}
 
 	var openAIRespBytes []byte
