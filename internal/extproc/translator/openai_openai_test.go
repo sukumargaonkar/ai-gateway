@@ -107,7 +107,6 @@ func TestOpenAIToOpenAITranslator_ResponseError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body, err := json.Marshal(tt.input)
 			require.NoError(t, err)
-			fmt.Println(string(body))
 
 			o := &openAIToOpenAITranslatorV1ChatCompletion{}
 			hm, bm, err := o.ResponseError(tt.responseHeaders, tt.input)
