@@ -6,7 +6,6 @@
 package translator
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -25,7 +24,8 @@ import (
 
 // currently a requirement for GCP Vertex / Anthropic API https://docs.anthropic.com/en/api/claude-on-vertex-ai
 const (
-	anthropicVersion      = "vertex-2023-10-16"
+	anthropicVersionKey   = "anthropic_version"
+	anthropicVersionValue = "vertex-2023-10-16"
 	gcpBackendError       = "GCPBackendError"
 	defaultMaxTokens      = int64(100)
 	tempNotSupportedError = "temperature %.2f is not supported by Anthropic (must be between 0.0 and 1.0)"
@@ -498,9 +498,6 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anth
 func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, _ bool) (
 	*extprocv3.HeaderMutation, *extprocv3.BodyMutation, error,
 ) {
-	incomingReqBytes, _ := json.Marshal(openAIReq)
-	fmt.Printf("Incoming OpenAI request body: %s", string(incomingReqBytes))
-
 	params, err := buildAnthropicParams(openAIReq)
 	if err != nil {
 		return nil, nil, err
@@ -520,13 +517,10 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 		return nil, nil, errStreamingNotSupported
 	}
 
-	pathSuffix := buildGCPModelPathSuffix(GCPModelPublisherAnthropic, strings.TrimPrefix(openAIReq.Model, "gcp."), specifier)
+	pathSuffix := buildGCPModelPathSuffix(GCPModelPublisherAnthropic, openAIReq.Model, specifier)
 	// b. Set the "anthropic_version" key in the JSON body
 	// Using same logic as anthropic go SDK: https://github.com/anthropics/anthropic-sdk-go/blob/main/vertex/vertex.go#L78
-	body, _ = sjson.SetBytes(body, "anthropic_version", anthropicVersion)
-
-	fmt.Printf("\nFinal request path being sent: %s\n", pathSuffix)
-	fmt.Printf("\nFinal request body being sent: %s\n", string(body))
+	body, _ = sjson.SetBytes(body, anthropicVersionKey, anthropicVersionValue)
 
 	headerMutation, bodyMutation := buildGCPRequestMutations(pathSuffix, body)
 	return headerMutation, bodyMutation, nil
@@ -622,21 +616,6 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers ma
 func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeaders map[string]string, body io.Reader, endOfStream bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, tokenUsage LLMTokenUsage, err error,
 ) {
-	// Print the response headers to see if content-encoding is present.
-	fmt.Printf("Response headers received: %v", respHeaders)
-
-	// Read the entire body into a byte slice so we can inspect it without consuming the stream.
-	bodyBytes, err := io.ReadAll(body)
-	if err != nil {
-		return nil, nil, LLMTokenUsage{}, fmt.Errorf("failed to read response body for debugging: %w", err)
-	}
-
-	// Print the raw response body to the console.
-	fmt.Printf("Raw response body received: %s", string(bodyBytes))
-
-	// Create a new reader from the byte slice to be used by the rest of the function.
-	body = bytes.NewBuffer(bodyBytes)
-
 	_ = endOfStream
 	if statusStr, ok := respHeaders[statusHeaderName]; ok {
 		var status int

@@ -63,7 +63,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		// Model should NOT be present in the body for GCP Vertex.
 		require.False(t, gjson.GetBytes(body, "model").Exists())
 		// Anthropic version should be present for GCP Vertex.
-		require.Equal(t, anthropicVersion, gjson.GetBytes(body, "anthropic_version").String())
+		require.Equal(t, anthropicVersionValue, gjson.GetBytes(body, "anthropic_version").String())
 	})
 
 	t.Run("Image Content Request", func(t *testing.T) {
