@@ -78,18 +78,16 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseBody(respHeaders
 	}
 
 	var openAIRespBytes []byte
-	if len(gcpResp.Candidates) > 0 {
-		// Convert to OpenAI format.
-		openAIResp, err := o.geminiResponseToOpenAIMessage(gcpResp)
-		if err != nil {
-			return nil, nil, LLMTokenUsage{}, fmt.Errorf("error converting GCP response to OpenAI format: %w", err)
-		}
+	// Convert to OpenAI format.
+	openAIResp, err := o.geminiResponseToOpenAIMessage(gcpResp)
+	if err != nil {
+		return nil, nil, LLMTokenUsage{}, fmt.Errorf("error converting GCP response to OpenAI format: %w", err)
+	}
 
-		// Marshal the OpenAI response.
-		openAIRespBytes, err = json.Marshal(openAIResp)
-		if err != nil {
-			return nil, nil, LLMTokenUsage{}, fmt.Errorf("error marshaling OpenAI response: %w", err)
-		}
+	// Marshal the OpenAI response.
+	openAIRespBytes, err = json.Marshal(openAIResp)
+	if err != nil {
+		return nil, nil, LLMTokenUsage{}, fmt.Errorf("error marshaling OpenAI response: %w", err)
 	}
 
 	// Update token usage if available.

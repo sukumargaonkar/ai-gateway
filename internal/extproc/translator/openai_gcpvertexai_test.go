@@ -235,11 +235,21 @@ func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_ResponseBody(t *testing.T
 			respHeaders: map[string]string{
 				"content-type": "application/json",
 			},
-			body:           `{}`,
-			endOfStream:    true,
-			wantError:      false,
-			wantHeaderMut:  nil,
-			wantBodyMut:    nil,
+			body:        `{}`,
+			endOfStream: true,
+			wantError:   false,
+			wantHeaderMut: &extprocv3.HeaderMutation{
+				SetHeaders: []*corev3.HeaderValueOption{
+					{
+						Header: &corev3.HeaderValue{Key: "Content-Length", RawValue: []byte("39")},
+					},
+				},
+			},
+			wantBodyMut: &extprocv3.BodyMutation{
+				Mutation: &extprocv3.BodyMutation_Body{
+					Body: []byte(`{"object":"chat.completion","usage":{}}`),
+				},
+			},
 			wantTokenUsage: LLMTokenUsage{},
 		},
 	}
