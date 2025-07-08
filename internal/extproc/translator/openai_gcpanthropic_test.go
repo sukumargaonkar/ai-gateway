@@ -408,7 +408,7 @@ func TestMessageTranslation(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				// Compare the conversational messages
+				// Compare the conversational messages.
 				require.Len(t, anthropicMsgs, len(tt.expectedAnthropicMsgs), "Number of translated messages should match")
 				for i, expectedMsg := range tt.expectedAnthropicMsgs {
 					actualMsg := anthropicMsgs[i]
@@ -436,7 +436,7 @@ func TestMessageTranslation(t *testing.T) {
 					}
 				}
 
-				// Compare the system prompt blocks
+				// Compare the system prompt blocks.
 				require.Len(t, systemBlocks, len(tt.expectedSystemBlocks), "Number of system blocks should match")
 				for i, expectedBlock := range tt.expectedSystemBlocks {
 					actualBlock := systemBlocks[i]
