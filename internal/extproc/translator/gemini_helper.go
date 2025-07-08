@@ -484,18 +484,18 @@ func buildGCPModelPathSuffix(publisher, model, gcpMethod string) string {
 
 // buildGCPRequestMutations creates header and body mutations for GCP requests
 // It sets the ":path" header, the "content-length" header and the request body.
-func buildGCPRequestMutations(path *string, reqBody []byte) (*ext_procv3.HeaderMutation, *ext_procv3.BodyMutation) {
+func buildGCPRequestMutations(path string, reqBody []byte) (*ext_procv3.HeaderMutation, *ext_procv3.BodyMutation) {
 	var bodyMutation *ext_procv3.BodyMutation
 	var headerMutation *ext_procv3.HeaderMutation
 
 	// Create header mutation.
-	if path != nil {
+	if len(path) != 0 {
 		headerMutation = &ext_procv3.HeaderMutation{
 			SetHeaders: []*corev3.HeaderValueOption{
 				{
 					Header: &corev3.HeaderValue{
 						Key:      ":path",
-						RawValue: []byte(*path),
+						RawValue: []byte(path),
 					},
 				},
 			},
