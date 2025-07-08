@@ -681,6 +681,59 @@ func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "explicitly enable parallel tool calls",
+			openAIReq: &openai.ChatCompletionRequest{
+				Tools:             openaiTestTool,
+				ToolChoice:        "auto",
+				ParallelToolCalls: ptr.To(true),
+			},
+			expectedTools: anthropicTestTool,
+			expectedToolChoice: anthropic.ToolChoiceUnionParam{
+				OfAuto: &anthropic.ToolChoiceAutoParam{DisableParallelToolUse: anthropic.Bool(false)},
+			},
+		},
+		{
+			name: "default disable parallel tool calls to false (nil)",
+			openAIReq: &openai.ChatCompletionRequest{
+				Tools:      openaiTestTool,
+				ToolChoice: "auto",
+			},
+			expectedTools: anthropicTestTool,
+			expectedToolChoice: anthropic.ToolChoiceUnionParam{
+				OfAuto: &anthropic.ToolChoiceAutoParam{DisableParallelToolUse: anthropic.Bool(false)},
+			},
+		},
+		{
+			name: "none tool choice",
+			openAIReq: &openai.ChatCompletionRequest{
+				Tools:      openaiTestTool,
+				ToolChoice: "none",
+			},
+			expectedTools: anthropicTestTool,
+			expectedToolChoice: anthropic.ToolChoiceUnionParam{
+				OfNone: &anthropic.ToolChoiceNoneParam{},
+			},
+		},
+		{
+			name: "function tool choice",
+			openAIReq: &openai.ChatCompletionRequest{
+				Tools:      openaiTestTool,
+				ToolChoice: "function",
+			},
+			expectedTools: anthropicTestTool,
+			expectedToolChoice: anthropic.ToolChoiceUnionParam{
+				OfTool: &anthropic.ToolChoiceToolParam{Name: "function"},
+			},
+		},
+		{
+			name: "invalid tool choice string",
+			openAIReq: &openai.ChatCompletionRequest{
+				Tools:      openaiTestTool,
+				ToolChoice: "invalid_choice",
+			},
+			expectErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -711,6 +764,235 @@ func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 					}
 				}
 			}
+		})
+	}
+}
+
+// TestFinishReasonTranslation covers specific cases for the anthropicToOpenAIFinishReason function.
+func TestFinishReasonTranslation(t *testing.T) {
+	tests := []struct {
+		name                 string
+		input                anthropic.StopReason
+		expectedFinishReason openai.ChatCompletionChoicesFinishReason
+		expectErr            bool
+	}{
+		{
+			name:                 "max tokens stop reason",
+			input:                anthropic.StopReasonMaxTokens,
+			expectedFinishReason: openai.ChatCompletionChoicesFinishReasonLength,
+		},
+		{
+			name:                 "refusal stop reason",
+			input:                anthropic.StopReasonRefusal,
+			expectedFinishReason: openai.ChatCompletionChoicesFinishReasonContentFilter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, err := anthropicToOpenAIFinishReason(tt.input)
+			if tt.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expectedFinishReason, reason)
+			}
+		})
+	}
+}
+
+// TestContentTranslationCoverage adds specific coverage for the openAIToAnthropicContent helper.
+func TestContentTranslationCoverage(t *testing.T) {
+	tests := []struct {
+		name            string
+		inputContent    interface{}
+		expectedContent []anthropic.ContentBlockParamUnion
+		expectErr       bool
+	}{
+		{
+			name:         "nil content",
+			inputContent: nil,
+		},
+		{
+			name:         "empty string content",
+			inputContent: "",
+		},
+		{
+			name: "pdf data uri",
+			inputContent: []openai.ChatCompletionContentPartUserUnionParam{
+				{ImageContent: &openai.ChatCompletionContentPartImageParam{ImageURL: openai.ChatCompletionContentPartImageImageURLParam{URL: "data:application/pdf;base64,dGVzdA=="}}},
+			},
+			expectedContent: []anthropic.ContentBlockParamUnion{
+				{
+					OfDocument: &anthropic.DocumentBlockParam{
+						Source: anthropic.DocumentBlockParamSourceUnion{
+							OfBase64: &anthropic.Base64PDFSourceParam{
+								Type:      constant.ValueOf[constant.Base64](),
+								MediaType: constant.ValueOf[constant.ApplicationPDF](),
+								Data:      "dGVzdA==",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "pdf url",
+			inputContent: []openai.ChatCompletionContentPartUserUnionParam{
+				{ImageContent: &openai.ChatCompletionContentPartImageParam{ImageURL: openai.ChatCompletionContentPartImageImageURLParam{URL: "https://example.com/doc.pdf"}}},
+			},
+			expectedContent: []anthropic.ContentBlockParamUnion{
+				{
+					OfDocument: &anthropic.DocumentBlockParam{
+						Source: anthropic.DocumentBlockParamSourceUnion{
+							OfURL: &anthropic.URLPDFSourceParam{
+								Type: constant.ValueOf[constant.URL](),
+								URL:  "https://example.com/doc.pdf",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "image url",
+			inputContent: []openai.ChatCompletionContentPartUserUnionParam{
+				{ImageContent: &openai.ChatCompletionContentPartImageParam{ImageURL: openai.ChatCompletionContentPartImageImageURLParam{URL: "https://example.com/image.png"}}},
+			},
+			expectedContent: []anthropic.ContentBlockParamUnion{
+				{
+					OfImage: &anthropic.ImageBlockParam{
+						Source: anthropic.ImageBlockParamSourceUnion{
+							OfURL: &anthropic.URLImageSourceParam{
+								Type: constant.ValueOf[constant.URL](),
+								URL:  "https://example.com/image.png",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:         "audio content error",
+			inputContent: []openai.ChatCompletionContentPartUserUnionParam{{InputAudioContent: &openai.ChatCompletionContentPartInputAudioParam{}}},
+			expectErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content, err := openAIToAnthropicContent(tt.inputContent)
+			if tt.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			// Use direct assertions instead of cmp.Diff to avoid panics on unexported fields.
+			require.Len(t, content, len(tt.expectedContent), "Number of content blocks should match")
+
+			// Use direct assertions instead of cmp.Diff to avoid panics on unexported fields.
+			require.Len(t, content, len(tt.expectedContent), "Number of content blocks should match")
+			for i, expectedBlock := range tt.expectedContent {
+				actualBlock := content[i]
+				require.Equal(t, expectedBlock.GetType(), actualBlock.GetType(), "Content block types should match")
+				if expectedBlock.OfDocument != nil {
+					require.NotNil(t, actualBlock.OfDocument, "Expected a document block, but got nil")
+					require.NotNil(t, actualBlock.OfDocument.Source, "Document source should not be nil")
+
+					if expectedBlock.OfDocument.Source.OfBase64 != nil {
+						require.NotNil(t, actualBlock.OfDocument.Source.OfBase64, "Expected a base64 source")
+						require.Equal(t, expectedBlock.OfDocument.Source.OfBase64.Data, actualBlock.OfDocument.Source.OfBase64.Data)
+					}
+					if expectedBlock.OfDocument.Source.OfURL != nil {
+						require.NotNil(t, actualBlock.OfDocument.Source.OfURL, "Expected a URL source")
+						require.Equal(t, expectedBlock.OfDocument.Source.OfURL.URL, actualBlock.OfDocument.Source.OfURL.URL)
+					}
+				}
+				if expectedBlock.OfImage != nil {
+					require.NotNil(t, actualBlock.OfImage, "Expected an image block, but got nil")
+					require.NotNil(t, actualBlock.OfImage.Source, "Image source should not be nil")
+
+					if expectedBlock.OfImage.Source.OfURL != nil {
+						require.NotNil(t, actualBlock.OfImage.Source.OfURL, "Expected a URL image source")
+						require.Equal(t, expectedBlock.OfImage.Source.OfURL.URL, actualBlock.OfImage.Source.OfURL.URL)
+					}
+				}
+			}
+
+			for i, expectedBlock := range tt.expectedContent {
+				actualBlock := content[i]
+				if expectedBlock.OfDocument != nil {
+					require.NotNil(t, actualBlock.OfDocument, "Expected a document block, but got nil")
+					require.NotNil(t, actualBlock.OfDocument.Source, "Document source should not be nil")
+
+					if expectedBlock.OfDocument.Source.OfBase64 != nil {
+						require.NotNil(t, actualBlock.OfDocument.Source.OfBase64, "Expected a base64 source")
+						require.Equal(t, expectedBlock.OfDocument.Source.OfBase64.Data, actualBlock.OfDocument.Source.OfBase64.Data)
+					}
+					if expectedBlock.OfDocument.Source.OfURL != nil {
+						require.NotNil(t, actualBlock.OfDocument.Source.OfURL, "Expected a URL source")
+						require.Equal(t, expectedBlock.OfDocument.Source.OfURL.URL, actualBlock.OfDocument.Source.OfURL.URL)
+					}
+				}
+				if expectedBlock.OfImage != nil {
+					require.NotNil(t, actualBlock.OfImage, "Expected an image block, but got nil")
+					require.NotNil(t, actualBlock.OfImage.Source, "Image source should not be nil")
+
+					if expectedBlock.OfImage.Source.OfURL != nil {
+						require.NotNil(t, actualBlock.OfImage.Source.OfURL, "Expected a URL image source")
+						require.Equal(t, expectedBlock.OfImage.Source.OfURL.URL, actualBlock.OfImage.Source.OfURL.URL)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestSystemPromptExtractionCoverage adds specific coverage for the extractSystemPromptFromDeveloperMsg helper.
+func TestSystemPromptExtractionCoverage(t *testing.T) {
+	tests := []struct {
+		name           string
+		inputMsg       openai.ChatCompletionDeveloperMessageParam
+		expectedPrompt string
+	}{
+		{
+			name: "developer message with content parts",
+			inputMsg: openai.ChatCompletionDeveloperMessageParam{
+				Content: openai.StringOrArray{Value: []openai.ChatCompletionContentPartUserUnionParam{
+					{TextContent: &openai.ChatCompletionContentPartTextParam{Text: "part 1"}},
+					{TextContent: &openai.ChatCompletionContentPartTextParam{Text: " part 2"}},
+				}},
+			},
+			expectedPrompt: "part 1 part 2",
+		},
+		{
+			name:           "developer message with nil content",
+			inputMsg:       openai.ChatCompletionDeveloperMessageParam{Content: openai.StringOrArray{Value: nil}},
+			expectedPrompt: "",
+		},
+		{
+			name: "developer message with StringOrArray of string",
+			inputMsg: openai.ChatCompletionDeveloperMessageParam{
+				Content: openai.StringOrArray{Value: openai.StringOrArray{Value: "nested string"}},
+			},
+			expectedPrompt: "nested string",
+		},
+		{
+			name: "developer message with StringOrArray of parts",
+			inputMsg: openai.ChatCompletionDeveloperMessageParam{
+				Content: openai.StringOrArray{Value: openai.StringOrArray{Value: []openai.ChatCompletionContentPartUserUnionParam{
+					{TextContent: &openai.ChatCompletionContentPartTextParam{Text: "nested part"}},
+				}}},
+			},
+			expectedPrompt: "nested part",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prompt := extractSystemPromptFromDeveloperMsg(tt.inputMsg)
+			require.Equal(t, tt.expectedPrompt, prompt)
 		})
 	}
 }

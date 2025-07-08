@@ -17,6 +17,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	openAIconstant "github.com/openai/openai-go/shared/constant"
 	"github.com/tidwall/sjson"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
@@ -165,7 +166,7 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 			switch choice := openAIToolChoice.(type) {
 			case string:
 				switch choice {
-				case "auto":
+				case string(openAIconstant.ValueOf[openAIconstant.Auto]()):
 					toolChoice = anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
 					toolChoice.OfAuto.DisableParallelToolUse = disableParallelToolUse
 				case "required", "any":
@@ -173,7 +174,7 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 					toolChoice.OfAny.DisableParallelToolUse = disableParallelToolUse
 				case "none":
 					toolChoice = anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
-				case "function":
+				case string(openAIconstant.ValueOf[openAIconstant.Function]()):
 					// this is how anthropic forces tool use
 					// TODO: should we check if strict true in openAI request, and if so, use this?
 					toolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Name: choice}}
@@ -584,7 +585,7 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseError(respHeaders 
 // anthropicToolUseToOpenAICalls converts Anthropic tool_use content blocks to OpenAI tool calls.
 func anthropicToolUseToOpenAICalls(block anthropic.ContentBlockUnion) ([]openai.ChatCompletionMessageToolCallParam, error) {
 	var toolCalls []openai.ChatCompletionMessageToolCallParam
-	if block.Type != "tool_use" {
+	if block.Type != string(constant.ValueOf[constant.ToolUse]()) {
 		return toolCalls, nil
 	}
 	argsBytes, err := json.Marshal(block.Input)
@@ -639,7 +640,7 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeaders m
 	}
 
 	openAIResp := openai.ChatCompletionResponse{
-		Object:  "chat.completion",
+		Object:  string(openAIconstant.ValueOf[openAIconstant.ChatCompletion]()),
 		Choices: make([]openai.ChatCompletionResponseChoice, 0),
 	}
 	tokenUsage = LLMTokenUsage{
@@ -670,13 +671,13 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeaders m
 	}
 
 	for _, output := range anthropicResp.Content {
-		if output.Type == "tool_use" && output.ID != "" {
+		if output.Type == string(constant.ValueOf[constant.ToolUse]()) && output.ID != "" {
 			toolCalls, toolErr := anthropicToolUseToOpenAICalls(output)
 			if toolErr != nil {
 				return nil, nil, tokenUsage, fmt.Errorf("failed to convert anthropic tool use to openai tool call: %w", toolErr)
 			}
 			choice.Message.ToolCalls = append(choice.Message.ToolCalls, toolCalls...)
-		} else if output.Type == "text" && output.Text != "" {
+		} else if output.Type == string(constant.ValueOf[constant.Text]()) && output.Text != "" {
 			if choice.Message.Content == nil {
 				choice.Message.Content = &output.Text
 			}
