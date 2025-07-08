@@ -282,7 +282,7 @@ data: [DONE]
 			responseType:    "",
 			method:          http.MethodPost,
 			requestBody:     `{"model":"gemini-1.5-pro","messages":[{"role":"system","content":"You are a helpful assistant."}]}`,
-			expPath:         "/publishers/google/models/gemini-1.5-pro:generateContent",
+			expPath:         "/v1/projects/gcp-project-name/locations/gcp-region/publishers/google/models/gemini-1.5-pro:generateContent",
 			responseStatus:  "400",
 			expStatus:       http.StatusBadRequest,
 			responseBody:    `{"error":{"code":400,"message":"Invalid request: missing required field","status":"INVALID_ARGUMENT"}}`,
