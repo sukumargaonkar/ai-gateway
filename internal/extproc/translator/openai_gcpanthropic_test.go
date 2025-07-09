@@ -358,7 +358,9 @@ func TestMessageTranslation(t *testing.T) {
 					Type: openai.ChatMessageRoleTool,
 					Value: openai.ChatCompletionToolMessageParam{
 						ToolCallID: "tool_abc",
-						Content:    openai.StringOrArray{Value: "The weather is 72 degrees and sunny."},
+						Content: openai.StringOrArray{
+							Value: "The weather is 72 degrees and sunny.",
+						},
 					},
 				},
 			},
@@ -371,7 +373,12 @@ func TestMessageTranslation(t *testing.T) {
 								ToolUseID: "tool_abc",
 								Type:      "tool_result",
 								Content: []anthropic.ToolResultBlockParamContentUnion{
-									{OfText: &anthropic.TextBlockParam{Text: "The weather is 72 degrees and sunny.", Type: "text"}},
+									{
+										OfText: &anthropic.TextBlockParam{
+											Text: "The weather is 72 degrees and sunny.",
+											Type: "text",
+										},
+									},
 								},
 							},
 						},
@@ -395,6 +402,99 @@ func TestMessageTranslation(t *testing.T) {
 			expectedSystemBlocks: []anthropic.TextBlockParam{
 				{Text: "System prompt."},
 				{Text: "Developer prompt."},
+			},
+		},
+		{
+			name: "user message with content error",
+			inputMessages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleUser,
+					Value: openai.ChatCompletionUserMessageParam{
+						Content: openai.StringOrUserRoleContentUnion{
+							Value: 0,
+						},
+					},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "assistant message with tool call error",
+			inputMessages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleAssistant,
+					Value: openai.ChatCompletionAssistantMessageParam{
+						ToolCalls: []openai.ChatCompletionMessageToolCallParam{
+							{
+								ID:       "tool_123",
+								Type:     openai.ChatCompletionMessageToolCallTypeFunction,
+								Function: openai.ChatCompletionMessageToolCallFunctionParam{Name: "get_weather", Arguments: `{"location":`},
+							},
+						},
+					},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "tool message with content error",
+			inputMessages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleTool,
+					Value: openai.ChatCompletionToolMessageParam{
+						ToolCallID: "tool_abc",
+						Content:    openai.StringOrArray{Value: 123},
+					},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "tool message with image content",
+			inputMessages: []openai.ChatCompletionMessageParamUnion{
+				{
+					Type: openai.ChatMessageRoleTool,
+					Value: openai.ChatCompletionToolMessageParam{
+						ToolCallID: "tool_def",
+						Content: openai.StringOrArray{
+							Value: []openai.ChatCompletionContentPartUserUnionParam{
+								{
+									ImageContent: &openai.ChatCompletionContentPartImageParam{
+										ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
+											URL: "data:image/png;base64,dGVzdA==",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedAnthropicMsgs: []anthropic.MessageParam{
+				{
+					Role: anthropic.MessageParamRoleUser,
+					Content: []anthropic.ContentBlockParamUnion{
+						{
+							OfToolResult: &anthropic.ToolResultBlockParam{
+								ToolUseID: "tool_def",
+								Type:      "tool_result",
+								Content: []anthropic.ToolResultBlockParamContentUnion{
+									{
+										OfImage: &anthropic.ImageBlockParam{
+											Source: anthropic.ImageBlockParamSourceUnion{
+												OfBase64: &anthropic.Base64ImageSourceParam{
+													Data:      "dGVzdA==",
+													MediaType: "image/png",
+													Type:      "base64",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
@@ -431,7 +531,17 @@ func TestMessageTranslation(t *testing.T) {
 							require.NotNil(t, actualContent.OfToolResult)
 							require.Equal(t, expectedContent.OfToolResult.ToolUseID, actualContent.OfToolResult.ToolUseID)
 							require.Len(t, actualContent.OfToolResult.Content, len(expectedContent.OfToolResult.Content))
-							require.Equal(t, expectedContent.OfToolResult.Content[0].OfText.Text, actualContent.OfToolResult.Content[0].OfText.Text)
+							if expectedContent.OfToolResult.Content[0].OfText != nil {
+								require.Equal(t, expectedContent.OfToolResult.Content[0].OfText.Text, actualContent.OfToolResult.Content[0].OfText.Text)
+							}
+							if expectedContent.OfToolResult.Content[0].OfImage != nil {
+								require.NotNil(t, actualContent.OfToolResult.Content[0].OfImage, "Actual image block should not be nil")
+								require.NotNil(t, actualContent.OfToolResult.Content[0].OfImage.Source, "Actual image source should not be nil")
+								if expectedContent.OfToolResult.Content[0].OfImage.Source.OfBase64 != nil {
+									require.NotNil(t, actualContent.OfToolResult.Content[0].OfImage.Source.OfBase64, "Actual base64 source should not be nil")
+									require.Equal(t, expectedContent.OfToolResult.Content[0].OfImage.Source.OfBase64.Data, actualContent.OfToolResult.Content[0].OfImage.Source.OfBase64.Data)
+								}
+							}
 						}
 					}
 				}
