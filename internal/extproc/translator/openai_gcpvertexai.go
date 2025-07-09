@@ -108,13 +108,13 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseBody(respHeaders
 // openAIMessageToGeminiMessage converts an OpenAI ChatCompletionRequest to a GCP Gemini GenerateContentRequest.
 func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) openAIMessageToGeminiMessage(openAIReq *openai.ChatCompletionRequest) (gcp.GenerateContentRequest, error) {
 	// Convert OpenAI messages to Gemini Contents and SystemInstruction.
-	contents, systemInstruction, err := toGeminiContents(openAIReq.Messages)
+	contents, systemInstruction, err := openAIMessagesToGeminiContents(openAIReq.Messages)
 	if err != nil {
 		return gcp.GenerateContentRequest{}, err
 	}
 
 	// Convert generation config.
-	generationConfig, err := toGeminiGenerationConfig(openAIReq)
+	generationConfig, err := openAIReqToGeminiGenerationConfig(openAIReq)
 	if err != nil {
 		return gcp.GenerateContentRequest{}, fmt.Errorf("error converting generation config: %w", err)
 	}
@@ -132,7 +132,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) openAIMessageToGeminiMes
 
 func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) geminiResponseToOpenAIMessage(gcr genai.GenerateContentResponse) (openai.ChatCompletionResponse, error) {
 	// Convert candidates to OpenAI choices.
-	choices, err := toOpenAIChoices(gcr.Candidates)
+	choices, err := geminiCandidatesToOpenAIChoices(gcr.Candidates)
 	if err != nil {
 		return openai.ChatCompletionResponse{}, fmt.Errorf("error converting choices: %w", err)
 	}
@@ -141,7 +141,7 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) geminiResponseToOpenAIMe
 	openaiResp := openai.ChatCompletionResponse{
 		Choices: choices,
 		Object:  "chat.completion",
-		Usage:   toOpenAIUsage(gcr.UsageMetadata),
+		Usage:   geminiUsageToOpenAIUsage(gcr.UsageMetadata),
 	}
 
 	return openaiResp, nil

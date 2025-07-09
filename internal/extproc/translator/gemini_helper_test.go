@@ -18,7 +18,7 @@ import (
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
-func TestToGeminiContents(t *testing.T) {
+func TestOpenAIMessagesToGeminiContents(t *testing.T) {
 	tests := []struct {
 		name                      string
 		messages                  []openai.ChatCompletionMessageParamUnion
@@ -122,7 +122,7 @@ func TestToGeminiContents(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			contents, systemInstruction, err := toGeminiContents(tc.messages)
+			contents, systemInstruction, err := openAIMessagesToGeminiContents(tc.messages)
 
 			if tc.expectedErrorMsg != "" || err != nil {
 				require.Error(t, err)
@@ -139,8 +139,8 @@ func TestToGeminiContents(t *testing.T) {
 	}
 }
 
-// TestFromAssistantMsg tests the fromAssistantMsg function.
-func TestFromAssistantMsg(t *testing.T) {
+// TestAssistantMsgToGeminiParts tests the assistantMsgToGeminiParts function.
+func TestAssistantMsgToGeminiParts(t *testing.T) {
 	tests := []struct {
 		name              string
 		msg               openai.ChatCompletionAssistantMessageParam
@@ -324,7 +324,7 @@ func TestFromAssistantMsg(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			parts, toolCalls, err := fromAssistantMsg(tc.msg)
+			parts, toolCalls, err := assistantMsgToGeminiParts(tc.msg)
 
 			if tc.expectedErrorMsg != "" || err != nil {
 				require.Error(t, err)
@@ -342,7 +342,7 @@ func TestFromAssistantMsg(t *testing.T) {
 	}
 }
 
-func TestFromDeveloperMsg(t *testing.T) {
+func TestDeveloperMsgToGeminiParts(t *testing.T) {
 	tests := []struct {
 		name             string
 		msg              openai.ChatCompletionDeveloperMessageParam
@@ -394,7 +394,7 @@ func TestFromDeveloperMsg(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			content, err := fromDeveloperMsg(tc.msg)
+			content, err := developerMsgToGeminiParts(tc.msg)
 
 			if tc.expectedErrorMsg != "" || err != nil {
 				require.Error(t, err)
@@ -409,7 +409,7 @@ func TestFromDeveloperMsg(t *testing.T) {
 	}
 }
 
-func TestFromToolMsg(t *testing.T) {
+func TestToolMsgToGeminiParts(t *testing.T) {
 	tests := []struct {
 		name             string
 		msg              openai.ChatCompletionToolMessageParam
@@ -475,7 +475,7 @@ func TestFromToolMsg(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			parts, err := fromToolMsg(tc.msg, tc.knownToolCalls)
+			parts, err := toolMsgToGeminiParts(tc.msg, tc.knownToolCalls)
 
 			if tc.expectedErrorMsg != "" || err != nil {
 				require.Error(t, err)
@@ -490,8 +490,8 @@ func TestFromToolMsg(t *testing.T) {
 	}
 }
 
-// TestFromUserMsg tests the fromUserMsg function with different inputs.
-func TestFromUserMsg(t *testing.T) {
+// TestUserMsgToGeminiParts tests the gcpPartsFromUserMsgToGeminiParts function with different inputs.
+func TestUserMsgToGeminiParts(t *testing.T) {
 	tests := []struct {
 		name           string
 		msg            openai.ChatCompletionUserMessageParam
@@ -708,7 +708,7 @@ func TestFromUserMsg(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			parts, err := fromUserMsg(tc.msg)
+			parts, err := userMsgToGeminiParts(tc.msg)
 
 			if tc.expectedErrMsg != "" || err != nil {
 				require.Error(t, err)
@@ -722,7 +722,7 @@ func TestFromUserMsg(t *testing.T) {
 	}
 }
 
-func TestToGeminiGenerationConfig(t *testing.T) {
+func TestOpenAIReqToGeminiGenerationConfig(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   *openai.ChatCompletionRequest
@@ -767,7 +767,7 @@ func TestToGeminiGenerationConfig(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := toGeminiGenerationConfig(tc.input)
+			got, err := openAIReqToGeminiGenerationConfig(tc.input)
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("expected error but got nil")
