@@ -192,17 +192,17 @@ func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_ResponseBody(t *testing.T
 				"promptFeedback": {
 					"safetyRatings": []
 				},
-				"usage": {
-					"promptTokens": 10,
-					"candidatesTokens": 15,
-					"totalTokens": 25
+				"usageMetadata": {
+					"promptTokenCount": 10,
+					"candidatesTokenCount": 15,
+					"totalTokenCount": 25
 				}
 			}`,
 			endOfStream: true,
 			wantError:   false,
 			wantHeaderMut: &extprocv3.HeaderMutation{
 				SetHeaders: []*corev3.HeaderValueOption{{
-					Header: &corev3.HeaderValue{Key: "Content-Length", RawValue: []byte("211")},
+					Header: &corev3.HeaderValue{Key: "Content-Length", RawValue: []byte("270")},
 				}},
 			},
 			wantBodyMut: &extprocv3.BodyMutation{
@@ -220,14 +220,18 @@ func TestOpenAIToGCPVertexAITranslatorV1ChatCompletion_ResponseBody(t *testing.T
         }
     ],
     "object": "chat.completion",
-    "usage": {}
+    "usage": {
+        "completion_tokens": 15,
+        "prompt_tokens": 10,
+        "total_tokens": 25
+    }
 }`),
 				},
 			},
 			wantTokenUsage: LLMTokenUsage{
-				InputTokens:  0,
-				OutputTokens: 0,
-				TotalTokens:  0,
+				InputTokens:  10,
+				OutputTokens: 15,
+				TotalTokens:  25,
 			},
 		},
 		{
