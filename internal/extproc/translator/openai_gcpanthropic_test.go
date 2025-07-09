@@ -24,7 +24,10 @@ import (
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
-const claudeTestModel = "claude-3-opus-20240229"
+const (
+	claudeTestModel = "claude-3-opus-20240229"
+	testTool        = "test_123"
+)
 
 func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T) {
 	// Define a common input request to use for both standard and vertex tests.
@@ -305,7 +308,7 @@ func TestMessageTranslation(t *testing.T) {
 					Value: openai.ChatCompletionAssistantMessageParam{
 						ToolCalls: []openai.ChatCompletionMessageToolCallParam{
 							{
-								ID:       "tool_123",
+								ID:       testTool,
 								Type:     openai.ChatCompletionMessageToolCallTypeFunction,
 								Function: openai.ChatCompletionMessageToolCallFunctionParam{Name: "get_weather", Arguments: `{"location":"NYC"}`},
 							},
@@ -319,7 +322,7 @@ func TestMessageTranslation(t *testing.T) {
 					Content: []anthropic.ContentBlockParamUnion{
 						{
 							OfToolUse: &anthropic.ToolUseBlockParam{
-								ID:    "tool_123",
+								ID:    testTool,
 								Type:  "tool_use",
 								Name:  "get_weather",
 								Input: map[string]interface{}{"location": "NYC"},
@@ -357,7 +360,7 @@ func TestMessageTranslation(t *testing.T) {
 				{
 					Type: openai.ChatMessageRoleTool,
 					Value: openai.ChatCompletionToolMessageParam{
-						ToolCallID: "tool_abc",
+						ToolCallID: testTool,
 						Content: openai.StringOrArray{
 							Value: "The weather is 72 degrees and sunny.",
 						},
@@ -370,7 +373,7 @@ func TestMessageTranslation(t *testing.T) {
 					Content: []anthropic.ContentBlockParamUnion{
 						{
 							OfToolResult: &anthropic.ToolResultBlockParam{
-								ToolUseID: "tool_abc",
+								ToolUseID: testTool,
 								Type:      "tool_result",
 								Content: []anthropic.ToolResultBlockParamContentUnion{
 									{
@@ -426,7 +429,7 @@ func TestMessageTranslation(t *testing.T) {
 					Value: openai.ChatCompletionAssistantMessageParam{
 						ToolCalls: []openai.ChatCompletionMessageToolCallParam{
 							{
-								ID:       "tool_123",
+								ID:       testTool,
 								Type:     openai.ChatCompletionMessageToolCallTypeFunction,
 								Function: openai.ChatCompletionMessageToolCallFunctionParam{Name: "get_weather", Arguments: `{"location":`},
 							},
@@ -442,7 +445,7 @@ func TestMessageTranslation(t *testing.T) {
 				{
 					Type: openai.ChatMessageRoleTool,
 					Value: openai.ChatCompletionToolMessageParam{
-						ToolCallID: "tool_abc",
+						ToolCallID: testTool,
 						Content:    openai.StringOrArray{Value: 123},
 					},
 				},
