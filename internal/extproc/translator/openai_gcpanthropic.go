@@ -34,11 +34,11 @@ const (
 
 var errStreamingNotSupported = errors.New("streaming is not yet supported for GCP Anthropic translation")
 
-// openAIToAnthropicTranslatorV1ChatCompletion where we can store information for streaming requests.
-type openAIToAnthropicTranslatorV1ChatCompletion struct{}
+// openAIToGCPAnthropicTranslatorV1ChatCompletion where we can store information for streaming requests.
+type openAIToGCPAnthropicTranslatorV1ChatCompletion struct{}
 
 // Option defines a function that configures the translator.
-type Option func(*openAIToAnthropicTranslatorV1ChatCompletion)
+type Option func(*openAIToGCPAnthropicTranslatorV1ChatCompletion)
 
 // AnthropicContent Anthropic request/response structs.
 type AnthropicContent struct {
@@ -47,9 +47,9 @@ type AnthropicContent struct {
 	Source *anthropic.Base64ImageSourceParam `json:"source,omitempty"`
 }
 
-// NewChatCompletionOpenAIToAnthropicTranslator creates a new translator.
-func NewChatCompletionOpenAIToAnthropicTranslator() OpenAIChatCompletionTranslator {
-	return &openAIToAnthropicTranslatorV1ChatCompletion{}
+// NewChatCompletionOpenAIToGCPAnthropicTranslator creates a new translator.
+func NewChatCompletionOpenAIToGCPAnthropicTranslator() OpenAIChatCompletionTranslator {
+	return &openAIToGCPAnthropicTranslatorV1ChatCompletion{}
 }
 
 func anthropicToOpenAIFinishReason(stopReason anthropic.StopReason) (openai.ChatCompletionChoicesFinishReason, error) {
@@ -486,7 +486,7 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anth
 }
 
 // RequestBody implements [Translator.RequestBody] for GCP.
-func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, _ bool) (
+func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, _ bool) (
 	*extprocv3.HeaderMutation, *extprocv3.BodyMutation, error,
 ) {
 	params, err := buildAnthropicParams(openAIReq)
@@ -518,7 +518,7 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, open
 }
 
 // ResponseError implements [Translator.ResponseError].
-func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseError(respHeaders map[string]string, body io.Reader) (
+func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseError(respHeaders map[string]string, body io.Reader) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
 	statusCode := respHeaders[statusHeaderName]
@@ -595,7 +595,7 @@ func anthropicToolUseToOpenAICalls(block anthropic.ContentBlockUnion) ([]openai.
 }
 
 // ResponseHeaders implements [Translator.ResponseHeaders].
-func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers map[string]string) (
+func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers map[string]string) (
 	headerMutation *extprocv3.HeaderMutation, err error,
 ) {
 	// TODO: Implement if needed.
@@ -604,7 +604,7 @@ func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseHeaders(headers ma
 }
 
 // ResponseBody implements [Translator.ResponseBody] for GCP Anthropic.
-func (o *openAIToAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeaders map[string]string, body io.Reader, endOfStream bool) (
+func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) ResponseBody(respHeaders map[string]string, body io.Reader, endOfStream bool) (
 	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, tokenUsage LLMTokenUsage, err error,
 ) {
 	_ = endOfStream
