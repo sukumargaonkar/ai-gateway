@@ -11,9 +11,10 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	"github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+
+	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 )
 
 const (
@@ -21,6 +22,7 @@ const (
 	mimeTypeImagePNG  = "image/png"
 	mimeTypeImageGIF  = "image/gif"
 	mimeTypeImageWEBP = "image/webp"
+	schemaJSON        = "schema.json"
 )
 
 // regDataURI follows the web uri regex definition.
@@ -42,9 +44,9 @@ func parseDataURI(uri string) (string, []byte, error) {
 	return contentType, bin, nil
 }
 
-// buildGCPRequestMutations creates header and body mutations for GCP requests
+// buildRequestMutations creates header and body mutations for GCP requests
 // It sets the ":path" header, the "content-length" header and the request body.
-func buildGCPRequestMutations(path string, reqBody []byte) (*ext_procv3.HeaderMutation, *ext_procv3.BodyMutation) {
+func buildRequestMutations(path string, reqBody []byte) (*ext_procv3.HeaderMutation, *ext_procv3.BodyMutation) {
 	var bodyMutation *ext_procv3.BodyMutation
 	var headerMutation *ext_procv3.HeaderMutation
 

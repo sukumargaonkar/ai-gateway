@@ -15,9 +15,12 @@ import (
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	anthropicParam "github.com/anthropics/anthropic-sdk-go/packages/param"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	anthropicVertex "github.com/anthropics/anthropic-sdk-go/vertex"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	openAIconstant "github.com/openai/openai-go/shared/constant"
+	"github.com/santhosh-tekuri/jsonschema/v5"
 	"github.com/tidwall/sjson"
 
 	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
@@ -26,7 +29,6 @@ import (
 // currently a requirement for GCP Vertex / Anthropic API https://docs.anthropic.com/en/api/claude-on-vertex-ai
 const (
 	anthropicVersionKey   = "anthropic_version"
-	anthropicVersionValue = "vertex-2023-10-16"
 	gcpBackendError       = "GCPBackendError"
 	defaultMaxTokens      = int64(100)
 	tempNotSupportedError = "temperature %.2f is not supported by Anthropic (must be between 0.0 and 1.0)"
@@ -56,7 +58,7 @@ func anthropicToOpenAIFinishReason(stopReason anthropic.StopReason) (openai.Chat
 	switch stopReason {
 	// The most common stop reason. Indicates Claude finished its response naturally.
 	// or Claude encountered one of your custom stop sequences.
-	// TODO: A better way to return pause_turning
+	// TODO: A better way to return pause_turn
 	// TODO: "pause_turn" Used with server tools like web search when Claude needs to pause a long-running operation.
 	case anthropic.StopReasonEndTurn, anthropic.StopReasonStopSequence, anthropic.StopReasonPauseTurn:
 		return openai.ChatCompletionChoicesFinishReasonStop, nil
@@ -75,7 +77,7 @@ func anthropicToOpenAIFinishReason(stopReason anthropic.StopReason) (openai.Chat
 // validateTemperatureForAnthropic checks if the temperature is within Anthropic's supported range (0.0 to 1.0).
 // Returns an error if the value is greater than 1.0.
 func validateTemperatureForAnthropic(temp *float64) error {
-	if temp != nil && *temp > 1.0 {
+	if temp != nil && (*temp < 0.0 || *temp > 1.0) {
 		return fmt.Errorf(tempNotSupportedError, *temp)
 	}
 	return nil
@@ -112,6 +114,72 @@ func isSupportedImageMediaType(mediaType string) bool {
 	}
 }
 
+// validateFunctionParameters checks if the given parameters object is a valid JSON schema.
+func validateFunctionParameters(params any) error {
+	// If there are no parameters, it's valid.
+	if params == nil {
+		return nil
+	}
+
+	// Marshal the parameters to JSON to prepare for validation.
+	schemaBytes, err := json.Marshal(params)
+	if err != nil {
+		return fmt.Errorf("failed to marshal tool parameters to JSON: %w", err)
+	}
+
+	// Attempt to compile the bytes as a JSON Schema to validate its structure.
+	compiler := jsonschema.NewCompiler()
+	if err = compiler.AddResource(schemaJSON, strings.NewReader(string(schemaBytes))); err != nil {
+		return fmt.Errorf("invalid JSON schema for tool parameters: %w", err)
+	}
+	if _, err = compiler.Compile(schemaJSON); err != nil {
+		return fmt.Errorf("invalid JSON schema for tool parameters: %w", err)
+	}
+
+	return nil
+}
+
+// translateToolChoice converts the OpenAI tool_choice parameter to the Anthropic format.
+func translateToolChoice(openAIToolChoice any, disableParallelToolUse anthropicParam.Opt[bool]) (anthropic.ToolChoiceUnionParam, error) {
+	var toolChoice anthropic.ToolChoiceUnionParam
+
+	if openAIToolChoice == nil {
+		return toolChoice, nil
+	}
+
+	switch choice := openAIToolChoice.(type) {
+	case string:
+		switch choice {
+		case string(openAIconstant.ValueOf[openAIconstant.Auto]()):
+			toolChoice = anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
+			toolChoice.OfAuto.DisableParallelToolUse = disableParallelToolUse
+		case "required", "any":
+			toolChoice = anthropic.ToolChoiceUnionParam{OfAny: &anthropic.ToolChoiceAnyParam{}}
+			toolChoice.OfAny.DisableParallelToolUse = disableParallelToolUse
+		case "none":
+			toolChoice = anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
+		case string(openAIconstant.ValueOf[openAIconstant.Function]()):
+			// this is how anthropic forces tool use
+			// TODO: should we check if strict true in openAI request, and if so, use this?
+			toolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Name: choice}}
+			toolChoice.OfTool.DisableParallelToolUse = disableParallelToolUse
+		default:
+			return toolChoice, fmt.Errorf("invalid tool choice type '%s'", choice)
+		}
+	case openai.ToolChoice:
+		if choice.Type == openai.ToolTypeFunction && choice.Function.Name != "" {
+			toolChoice = anthropic.ToolChoiceUnionParam{
+				OfTool: &anthropic.ToolChoiceToolParam{
+					Type:                   constant.Tool(choice.Type),
+					Name:                   choice.Function.Name,
+					DisableParallelToolUse: disableParallelToolUse,
+				},
+			}
+		}
+	}
+	return toolChoice, nil
+}
+
 // translateOpenAItoAnthropicTools translates OpenAI tool and tool_choice parameters
 // into the Anthropic format and returns translated tool & tool choice.
 func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice any, parallelToolCalls *bool) (tools []anthropic.ToolUnionParam, toolChoice anthropic.ToolChoiceUnionParam, err error) {
@@ -129,19 +197,12 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 
 			// The parameters for the function are expected to be a JSON Schema object.
 			// We can pass them through as-is.
-			var inputSchema map[string]interface{}
-			if openAITool.Function.Parameters != nil {
-				// Directly assert the 'any' type to the expected map structure.
-				schema, ok := openAITool.Function.Parameters.(map[string]interface{})
-				if !ok {
-					err = fmt.Errorf("tool parameters for '%s' are not a valid JSON object", openAITool.Function.Name)
-					return
-				}
-				inputSchema = schema
+			if err = validateFunctionParameters(openAITool.Function.Parameters); err != nil {
+				return
 			}
 
 			toolParam.InputSchema = anthropic.ToolInputSchemaParam{
-				Properties: inputSchema,
+				Properties: openAITool.Function.Parameters,
 				// TODO: support extra fields.
 				ExtraFields: nil,
 			}
@@ -162,38 +223,64 @@ func translateOpenAItoAnthropicTools(openAITools []openai.Tool, openAIToolChoice
 			// Anthropic variable checks to disable, so need to use the inverse.
 			disableParallelToolUse = anthropic.Bool(!*parallelToolCalls)
 		}
-		if openAIToolChoice != nil {
-			switch choice := openAIToolChoice.(type) {
-			case string:
-				switch choice {
-				case string(openAIconstant.ValueOf[openAIconstant.Auto]()):
-					toolChoice = anthropic.ToolChoiceUnionParam{OfAuto: &anthropic.ToolChoiceAutoParam{}}
-					toolChoice.OfAuto.DisableParallelToolUse = disableParallelToolUse
-				case "required", "any":
-					toolChoice = anthropic.ToolChoiceUnionParam{OfAny: &anthropic.ToolChoiceAnyParam{}}
-					toolChoice.OfAny.DisableParallelToolUse = disableParallelToolUse
-				case "none":
-					toolChoice = anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
-				case string(openAIconstant.ValueOf[openAIconstant.Function]()):
-					// this is how anthropic forces tool use
-					// TODO: should we check if strict true in openAI request, and if so, use this?
-					toolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Name: choice}}
-					toolChoice.OfTool.DisableParallelToolUse = disableParallelToolUse
-				default:
-					err = fmt.Errorf("invalid tool choice type '%s'", choice)
-				}
-			case openai.ToolChoice:
-				if choice.Type == openai.ToolTypeFunction && choice.Function.Name != "" {
-					toolChoice = anthropic.ToolChoiceUnionParam{OfTool: &anthropic.ToolChoiceToolParam{Type: constant.Tool(choice.Type), Name: choice.Function.Name}}
-					toolChoice.OfTool.DisableParallelToolUse = disableParallelToolUse
-				}
-			}
+
+		toolChoice, err = translateToolChoice(openAIToolChoice, disableParallelToolUse)
+		if err != nil {
+			return
 		}
 	}
 	return
 }
 
-// Helper: Convert OpenAI message content to Anthropic content (extended for all types).
+// convertImageContentToAnthropic translates an OpenAI image URL into the corresponding Anthropic content block.
+// It handles data URIs for various image types and PDFs, as well as remote URLs.
+func convertImageContentToAnthropic(imageURL string) (anthropic.ContentBlockParamUnion, error) {
+	switch {
+	case isDataURI(imageURL):
+		contentType, data, err := parseDataURI(imageURL)
+		if err != nil {
+			return anthropic.ContentBlockParamUnion{}, fmt.Errorf("failed to parse image URL: %w", err)
+		}
+		base64Data := base64.StdEncoding.EncodeToString(data)
+		if contentType == string(constant.ValueOf[constant.ApplicationPDF]()) {
+			pdfSource := anthropic.Base64PDFSourceParam{Data: base64Data}
+			return anthropic.NewDocumentBlock(pdfSource), nil
+		}
+		if isSupportedImageMediaType(contentType) {
+			return anthropic.NewImageBlockBase64(contentType, base64Data), nil
+		}
+		return anthropic.ContentBlockParamUnion{}, fmt.Errorf("invalid media_type for image '%s'", contentType)
+	case strings.HasSuffix(strings.ToLower(imageURL), ".pdf"):
+		return anthropic.NewDocumentBlock(anthropic.URLPDFSourceParam{URL: imageURL}), nil
+	default:
+		return anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: imageURL}), nil
+	}
+}
+
+// convertContentPartsToAnthropic iterates over a slice of OpenAI content parts
+// and converts each into an Anthropic content block.
+func convertContentPartsToAnthropic(parts []openai.ChatCompletionContentPartUserUnionParam) ([]anthropic.ContentBlockParamUnion, error) {
+	resultContent := make([]anthropic.ContentBlockParamUnion, 0, len(parts))
+	for _, contentPart := range parts {
+		switch {
+		case contentPart.TextContent != nil:
+			resultContent = append(resultContent, anthropic.NewTextBlock(contentPart.TextContent.Text))
+
+		case contentPart.ImageContent != nil:
+			block, err := convertImageContentToAnthropic(contentPart.ImageContent.ImageURL.URL)
+			if err != nil {
+				return nil, err
+			}
+			resultContent = append(resultContent, block)
+
+		case contentPart.InputAudioContent != nil:
+			return nil, fmt.Errorf("input audio content not supported yet")
+		}
+	}
+	return resultContent, nil
+}
+
+// Helper: Convert OpenAI message content to Anthropic content.
 func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockParamUnion, error) {
 	switch v := content.(type) {
 	case nil:
@@ -206,48 +293,7 @@ func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockPara
 			anthropic.NewTextBlock(v),
 		}, nil
 	case []openai.ChatCompletionContentPartUserUnionParam:
-		resultContent := make([]anthropic.ContentBlockParamUnion, 0, len(v))
-		for _, contentPart := range v {
-			switch {
-			case contentPart.TextContent != nil:
-				resultContent = append(resultContent, anthropic.NewTextBlock(contentPart.TextContent.Text))
-			case contentPart.ImageContent != nil:
-				imageURL := contentPart.ImageContent.ImageURL.URL
-				switch {
-				case isDataURI(imageURL):
-					contentType, data, err := parseDataURI(imageURL)
-					if err != nil {
-						return nil, fmt.Errorf("failed to parse image URL: %w", err)
-					}
-					base64Data := base64.StdEncoding.EncodeToString(data)
-					appPDF := string(constant.ValueOf[constant.ApplicationPDF]())
-					switch contentType {
-					case appPDF:
-						pdfSource := anthropic.Base64PDFSourceParam{
-							Data: base64Data,
-						}
-						resultContent = append(resultContent, anthropic.NewDocumentBlock(pdfSource))
-					default:
-						if isSupportedImageMediaType(contentType) {
-							resultContent = append(resultContent, anthropic.NewImageBlockBase64(contentType, base64Data))
-						} else {
-							return nil, fmt.Errorf("invalid media_type for image '%s'", contentType)
-						}
-					}
-				case strings.HasSuffix(strings.ToLower(imageURL), ".pdf"):
-					resultContent = append(resultContent, anthropic.NewDocumentBlock(anthropic.URLPDFSourceParam{
-						URL: imageURL,
-					}))
-				default:
-					resultContent = append(resultContent, anthropic.NewImageBlock(anthropic.URLImageSourceParam{
-						URL: imageURL,
-					}))
-				}
-			case contentPart.InputAudioContent != nil:
-				return nil, fmt.Errorf("input audio content not supported yet")
-			}
-		}
-		return resultContent, nil
+		return convertContentPartsToAnthropic(v)
 	case openai.StringOrArray:
 		switch val := v.Value.(type) {
 		case string:
@@ -268,6 +314,8 @@ func openAIToAnthropicContent(content interface{}) ([]anthropic.ContentBlockPara
 
 func extractSystemPromptFromDeveloperMsg(msg openai.ChatCompletionDeveloperMessageParam) string {
 	switch v := msg.Content.Value.(type) {
+	case nil:
+		return ""
 	case string:
 		return v
 	case []openai.ChatCompletionContentPartUserUnionParam:
@@ -279,8 +327,6 @@ func extractSystemPromptFromDeveloperMsg(msg openai.ChatCompletionDeveloperMessa
 			}
 		}
 		return sb.String()
-	case nil:
-		return ""
 	case openai.StringOrArray:
 		switch val := v.Value.(type) {
 		case string:
@@ -487,16 +533,16 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anth
 
 // RequestBody implements [Translator.RequestBody] for GCP.
 func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, openAIReq *openai.ChatCompletionRequest, _ bool) (
-	*extprocv3.HeaderMutation, *extprocv3.BodyMutation, error,
+	headerMutation *extprocv3.HeaderMutation, bodyMutation *extprocv3.BodyMutation, err error,
 ) {
 	params, err := buildAnthropicParams(openAIReq)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 
 	body, err := json.Marshal(params)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 
 	// TODO: add stream support.
@@ -505,16 +551,17 @@ func (o *openAIToGCPAnthropicTranslatorV1ChatCompletion) RequestBody(_ []byte, o
 	specifier := "rawPredict"
 	if openAIReq.Stream {
 		// TODO: specifier = "streamRawPredict" - use this when implementing streaming.
-		return nil, nil, errStreamingNotSupported
+		err = errStreamingNotSupported
+		return
 	}
 
 	pathSuffix := buildGCPModelPathSuffix(GCPModelPublisherAnthropic, openAIReq.Model, specifier)
 	// b. Set the "anthropic_version" key in the JSON body
 	// Using same logic as anthropic go SDK: https://github.com/anthropics/anthropic-sdk-go/blob/main/vertex/vertex.go#L78
-	body, _ = sjson.SetBytes(body, anthropicVersionKey, anthropicVersionValue)
+	body, _ = sjson.SetBytes(body, anthropicVersionKey, anthropicVertex.DefaultVersion)
 
-	headerMutation, bodyMutation := buildGCPRequestMutations(pathSuffix, body)
-	return headerMutation, bodyMutation, nil
+	headerMutation, bodyMutation = buildRequestMutations(pathSuffix, body)
+	return
 }
 
 // ResponseError implements [Translator.ResponseError].

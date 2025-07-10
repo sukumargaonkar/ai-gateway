@@ -16,6 +16,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	anthropicVertex "github.com/anthropics/anthropic-sdk-go/vertex"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -66,7 +67,7 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		// Model should NOT be present in the body for GCP Vertex.
 		require.False(t, gjson.GetBytes(body, "model").Exists())
 		// Anthropic version should be present for GCP Vertex.
-		require.Equal(t, anthropicVersionValue, gjson.GetBytes(body, "anthropic_version").String())
+		require.Equal(t, anthropicVertex.DefaultVersion, gjson.GetBytes(body, "anthropic_version").String())
 	})
 
 	t.Run("Image Content Request", func(t *testing.T) {
@@ -136,12 +137,25 @@ func TestOpenAIToGCPAnthropicTranslatorV1ChatCompletion_RequestBody(t *testing.T
 		require.Contains(t, err.Error(), errStreamingNotSupported.Error())
 	})
 
-	t.Run("Invalid Temperature", func(t *testing.T) {
+	t.Run("Invalid Temperature (above bound)", func(t *testing.T) {
 		invalidTempReq := &openai.ChatCompletionRequest{
 			Model:       claudeTestModel,
 			Messages:    []openai.ChatCompletionMessageParamUnion{},
 			MaxTokens:   ptr.To(int64(100)),
 			Temperature: ptr.To(2.5),
+		}
+		translator := NewChatCompletionOpenAIToGCPAnthropicTranslator()
+		_, _, err := translator.RequestBody(nil, invalidTempReq, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), fmt.Sprintf(tempNotSupportedError, *invalidTempReq.Temperature))
+	})
+
+	t.Run("Invalid Temperature (below bound)", func(t *testing.T) {
+		invalidTempReq := &openai.ChatCompletionRequest{
+			Model:       claudeTestModel,
+			Messages:    []openai.ChatCompletionMessageParamUnion{},
+			MaxTokens:   ptr.To(int64(100)),
+			Temperature: ptr.To(-2.5),
 		}
 		translator := NewChatCompletionOpenAIToGCPAnthropicTranslator()
 		_, _, err := translator.RequestBody(nil, invalidTempReq, false)
@@ -675,7 +689,6 @@ func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 		openAIReq          *openai.ChatCompletionRequest
 		expectedTools      []anthropic.ToolUnionParam
 		expectedToolChoice anthropic.ToolChoiceUnionParam
-		disableParallel    *bool
 		expectErr          bool
 	}{
 		{
@@ -686,7 +699,9 @@ func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 			},
 			expectedTools: anthropicTestTool,
 			expectedToolChoice: anthropic.ToolChoiceUnionParam{
-				OfAuto: &anthropic.ToolChoiceAutoParam{},
+				OfAuto: &anthropic.ToolChoiceAutoParam{
+					DisableParallelToolUse: anthropic.Bool(false),
+				},
 			},
 		},
 		{
@@ -851,7 +866,7 @@ func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tools, toolChoice, err := translateOpenAItoAnthropicTools(tt.openAIReq.Tools, tt.openAIReq.ToolChoice, tt.disableParallel)
+			tools, toolChoice, err := translateOpenAItoAnthropicTools(tt.openAIReq.Tools, tt.openAIReq.ToolChoice, tt.openAIReq.ParallelToolCalls)
 			if tt.expectErr {
 				require.Error(t, err)
 			} else {
@@ -864,6 +879,9 @@ func TestTranslateOpenAItoAnthropicTools(t *testing.T) {
 					}
 					if tt.expectedToolChoice.OfTool != nil {
 						require.Equal(t, tt.expectedToolChoice.OfTool.Name, toolChoice.OfTool.Name)
+					}
+					if tt.expectedToolChoice.OfAuto != nil {
+						require.Equal(t, tt.expectedToolChoice.OfAuto.DisableParallelToolUse, toolChoice.OfAuto.DisableParallelToolUse)
 					}
 				}
 				if tt.openAIReq.Tools != nil {
