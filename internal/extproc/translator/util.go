@@ -11,15 +11,16 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/envoyproxy/ai-gateway/internal/apischema/openai"
 	"github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
 const (
-	MimeTypeImageJPEG = "image/jpeg"
-	MimeTypeImagePNG  = "image/png"
-	MimeTypeImageGIF  = "image/gif"
-	MimeTypeImageWEBP = "image/webp"
+	mimeTypeImageJPEG = "image/jpeg"
+	mimeTypeImagePNG  = "image/png"
+	mimeTypeImageGIF  = "image/gif"
+	mimeTypeImageWEBP = "image/webp"
 )
 
 // regDataURI follows the web uri regex definition.
@@ -44,28 +45,52 @@ func parseDataURI(uri string) (string, []byte, error) {
 // buildGCPRequestMutations creates header and body mutations for GCP requests
 // It sets the ":path" header, the "content-length" header and the request body.
 func buildGCPRequestMutations(path string, reqBody []byte) (*ext_procv3.HeaderMutation, *ext_procv3.BodyMutation) {
+	var bodyMutation *ext_procv3.BodyMutation
+	var headerMutation *ext_procv3.HeaderMutation
+
 	// Create header mutation.
-	headerMutation := &ext_procv3.HeaderMutation{
-		SetHeaders: []*corev3.HeaderValueOption{
-			{
-				Header: &corev3.HeaderValue{
-					Key:      ":path",
-					RawValue: []byte(path),
+	if len(path) != 0 {
+		headerMutation = &ext_procv3.HeaderMutation{
+			SetHeaders: []*corev3.HeaderValueOption{
+				{
+					Header: &corev3.HeaderValue{
+						Key:      ":path",
+						RawValue: []byte(path),
+					},
 				},
 			},
-			{
-				Header: &corev3.HeaderValue{
-					Key:      "content-length",
-					RawValue: []byte(strconv.Itoa(len(reqBody))),
-				},
-			},
-		},
+		}
 	}
 
-	// Create body mutation.
-	bodyMutation := &ext_procv3.BodyMutation{
-		Mutation: &ext_procv3.BodyMutation_Body{Body: reqBody},
+	// If the request body is not empty, we set the content-length header and create a body mutation.
+	if len(reqBody) != 0 {
+		if headerMutation == nil {
+			headerMutation = &ext_procv3.HeaderMutation{}
+		}
+		// Set the "content-length" header.
+		headerMutation.SetHeaders = append(headerMutation.SetHeaders, &corev3.HeaderValueOption{
+			Header: &corev3.HeaderValue{
+				Key:      HTTPHeaderKeyContentLength,
+				RawValue: []byte(strconv.Itoa(len(reqBody))),
+			},
+		})
+
+		// Create body mutation.
+		bodyMutation = &ext_procv3.BodyMutation{
+			Mutation: &ext_procv3.BodyMutation_Body{Body: reqBody},
+		}
 	}
 
 	return headerMutation, bodyMutation
+}
+
+// systemMsgToDeveloperMsg converts OpenAI system message to developer message.
+// Since systemMsg is deprecated, this function is provided to maintain backward compatibility.
+func systemMsgToDeveloperMsg(msg openai.ChatCompletionSystemMessageParam) openai.ChatCompletionDeveloperMessageParam {
+	// Convert OpenAI system message to developer message.
+	return openai.ChatCompletionDeveloperMessageParam{
+		Name:    msg.Name,
+		Role:    openai.ChatMessageRoleDeveloper,
+		Content: msg.Content,
+	}
 }

@@ -300,16 +300,6 @@ func extractSystemPromptFromDeveloperMsg(msg openai.ChatCompletionDeveloperMessa
 	return ""
 }
 
-// systemMsgToDeveloperMsg is a helper to convert an OpenAI system message
-// into a developer message to consolidate processing logic.
-func systemMsgToDeveloperMsg(msg openai.ChatCompletionSystemMessageParam) openai.ChatCompletionDeveloperMessageParam {
-	return openai.ChatCompletionDeveloperMessageParam{
-		Name:    msg.Name,
-		Role:    openai.ChatMessageRoleDeveloper,
-		Content: msg.Content,
-	}
-}
-
 func anthropicRoleToOpenAIRole(role anthropic.MessageParamRole) (string, error) {
 	switch role {
 	case anthropic.MessageParamRoleAssistant:
