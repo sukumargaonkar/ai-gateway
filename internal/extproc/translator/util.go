@@ -94,6 +94,8 @@ func systemMsgToDeveloperMsg(msg openai.ChatCompletionSystemMessageParam) openai
 		Name:    msg.Name,
 		Role:    openai.ChatMessageRoleDeveloper,
 		Content: msg.Content,
+	}
+}
 
 // processStop handles the 'stop' parameter which can be a string or a slice of strings.
 // It normalizes the input into a []*string.
@@ -116,4 +118,15 @@ func processStop(data interface{}) ([]*string, error) {
 	default:
 		return nil, fmt.Errorf("invalid type for stop parameter: expected string, []string, []*string, or nil, got %T", v)
 	}
+}
+
+// coalesce returns the value of the first non-nil pointer,
+// or the default value if all pointers are nil.
+func coalesce[T any](defaultValue T, ptrs ...*T) T {
+	for _, p := range ptrs {
+		if p != nil {
+			return *p
+		}
+	}
+	return defaultValue
 }

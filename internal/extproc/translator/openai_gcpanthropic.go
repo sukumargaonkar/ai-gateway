@@ -83,21 +83,6 @@ func validateTemperatureForAnthropic(temp *float64) error {
 	return nil
 }
 
-// Helper: Convert []*string to []string for stop sequences.
-func extractStopSequencesFromPtrSlice(stop []*string) ([]string, error) {
-	if stop == nil {
-		return nil, nil
-	}
-	stopSequences := make([]string, 0, len(stop))
-	for _, s := range stop {
-		if s == nil {
-			return nil, fmt.Errorf("invalid stop param: message.stop contains nil value")
-		}
-		stopSequences = append(stopSequences, *s)
-	}
-	return stopSequences, nil
-}
-
 func isDataURI(uri string) bool {
 	return strings.HasPrefix(uri, "data:")
 }
@@ -480,12 +465,7 @@ func openAIToAnthropicMessages(openAIMsgs []openai.ChatCompletionMessageParamUni
 // into the parameter struct required by the Anthropic SDK.
 func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anthropic.MessageNewParams, err error) {
 	// 1. Handle simple parameters and defaults.
-	maxTokens := defaultMaxTokens
-	if openAIReq.MaxCompletionTokens != nil {
-		maxTokens = *openAIReq.MaxCompletionTokens
-	} else if openAIReq.MaxTokens != nil {
-		maxTokens = *openAIReq.MaxTokens
-	}
+	maxTokens := coalesce(defaultMaxTokens, openAIReq.MaxCompletionTokens, openAIReq.MaxTokens)
 
 	// Translate openAI contents to anthropic params.
 	// 2. Translate messages and system prompts.
@@ -520,12 +500,18 @@ func buildAnthropicParams(openAIReq *openai.ChatCompletionRequest) (params *anth
 	}
 
 	// Handle stop sequences.
-	stopSequences, err := extractStopSequencesFromPtrSlice(openAIReq.Stop)
+	stopSequences, err := processStop(openAIReq.Stop)
 	if err != nil {
 		return &anthropic.MessageNewParams{}, err
 	}
 	if len(stopSequences) > 0 {
-		params.StopSequences = stopSequences
+		var stops []string
+		for _, s := range stopSequences {
+			if s != nil {
+				stops = append(stops, *s)
+			}
+		}
+		params.StopSequences = stops
 	}
 
 	return params, nil

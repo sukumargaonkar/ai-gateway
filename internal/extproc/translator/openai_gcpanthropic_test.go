@@ -670,10 +670,10 @@ func TestHelperFunctions(t *testing.T) {
 		require.Contains(t, err.Error(), "invalid anthropic role")
 	})
 
-	t.Run("extractStopSequencesFromPtrSlice with nil", func(t *testing.T) {
-		_, err := extractStopSequencesFromPtrSlice([]*string{ptr.To("a"), nil, ptr.To("b")})
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "contains nil value")
+	t.Run("process stop with nil", func(t *testing.T) {
+		val, err := processStop(nil)
+		require.NoError(t, err)
+		require.Nil(t, val)
 	})
 }
 
