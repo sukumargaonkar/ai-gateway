@@ -514,9 +514,8 @@ type ChatCompletionRequest struct {
 	// Stop string / array / null Defaults to null
 	// Up to 4 sequences where the API will stop generating further tokens.
 	// Docs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-stop
-	// TODO: this should be *interface
-	Stop []*string `json:"stop,omitempty"`
-
+	Stop interface{} `json:"stop,omitempty"`
+  
 	// Stream: If set, partial message deltas will be sent, like in ChatGPT.
 	// Docs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-stream
 	Stream bool `json:"stream,omitempty"`
