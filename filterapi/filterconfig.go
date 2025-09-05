@@ -84,6 +84,10 @@ const (
 	LLMRequestCostTypeInputToken LLMRequestCostType = "InputToken"
 	// LLMRequestCostTypeTotalToken specifies that the request cost is calculated from the total token.
 	LLMRequestCostTypeTotalToken LLMRequestCostType = "TotalToken"
+	// LLMRequestCostTypeCacheReadToken specifies that the request cost is calculated from the cache read token.
+	LLMRequestCostTypeCacheReadToken LLMRequestCostType = "CacheReadToken"
+	// LLMRequestCostTypeCacheWriteToken specifies that the request cost is calculated from the cache write token.
+	LLMRequestCostTypeCacheWriteToken LLMRequestCostType = "CacheWriteToken"
 	// LLMRequestCostTypeCEL specifies that the request cost is calculated from the CEL expression.
 	LLMRequestCostTypeCEL LLMRequestCostType = "CEL"
 )

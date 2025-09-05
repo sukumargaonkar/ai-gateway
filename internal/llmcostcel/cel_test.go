@@ -28,13 +28,21 @@ func TestNewProgram(t *testing.T) {
 	t.Run("variables", func(t *testing.T) {
 		prog, err := NewProgram("model == 'cool_model' ?  input_tokens * output_tokens : total_tokens")
 		require.NoError(t, err)
-		v, err := EvaluateProgram(prog, "cool_model", "cool_backend", 100, 2, 3)
+		v, err := EvaluateProgram(prog, "cool_model", "cool_backend", 100, 2, 3, 0, 0)
 		require.NoError(t, err)
 		require.Equal(t, uint64(200), v)
 
-		v, err = EvaluateProgram(prog, "not_cool_model", "cool_backend", 100, 2, 3)
+		v, err = EvaluateProgram(prog, "not_cool_model", "cool_backend", 100, 2, 3, 0, 0)
 		require.NoError(t, err)
 		require.Equal(t, uint64(3), v)
+	})
+
+	t.Run("with cache tokens", func(t *testing.T) {
+		prog, err := NewProgram("1000u * output_tokens + 100u * input_tokens +  10u * cache_write_tokens + 1u * cache_read_tokens")
+		require.NoError(t, err)
+		v, err := EvaluateProgram(prog, "model", "backend", 10, 20, 30, 5, 7)
+		require.NoError(t, err)
+		require.Equal(t, uint64(21075), v) // 1000*20 + 100*10 + 10*7 + 1*5 = 21075.
 	})
 
 	t.Run("uint", func(t *testing.T) {
@@ -59,13 +67,13 @@ func TestEvaluateProgram(t *testing.T) {
 	t.Run("signed integer negative", func(t *testing.T) {
 		prog, err := NewProgram("int(input_tokens) - int(output_tokens)")
 		require.NoError(t, err)
-		_, err = EvaluateProgram(prog, "cool_model", "cool_backend", 100, 2000, 3)
+		_, err = EvaluateProgram(prog, "cool_model", "cool_backend", 100, 2000, 3, 0, 0)
 		require.ErrorContains(t, err, "CEL expression result is negative (-1900)")
 	})
 	t.Run("unsigned integer overflow", func(t *testing.T) {
 		prog, err := NewProgram("input_tokens - output_tokens")
 		require.NoError(t, err)
-		_, err = EvaluateProgram(prog, "cool_model", "cool_backend", 100, 2000, 3)
+		_, err = EvaluateProgram(prog, "cool_model", "cool_backend", 100, 2000, 3, 0, 0)
 		require.ErrorContains(t, err, "failed to evaluate CEL expression: unsigned integer overflow")
 	})
 	t.Run("ensure concurrency safety", func(t *testing.T) {
@@ -76,7 +84,7 @@ func TestEvaluateProgram(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			for range 100 {
 				go func() {
-					v, err := EvaluateProgram(prog, "cool_model", "cool_backend", 100, 2, 3)
+					v, err := EvaluateProgram(prog, "cool_model", "cool_backend", 100, 2, 3, 0, 0)
 					require.NoError(t, err)
 					require.Equal(t, uint64(200), v)
 				}()

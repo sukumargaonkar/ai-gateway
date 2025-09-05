@@ -1338,3 +1338,82 @@ func TestGeminiFinishReasonToOpenAI(t *testing.T) {
 		})
 	}
 }
+
+func TestGeminiUsageToOpenAIUsage(t *testing.T) {
+	tests := []struct {
+		name                string
+		metadata            *genai.GenerateContentResponseUsageMetadata
+		expectedOpenAIUsage openai.ChatCompletionResponseUsage
+		expectedLLLMUsage   LLMTokenUsage
+	}{
+		{
+			name:                "nil metadata",
+			metadata:            nil,
+			expectedOpenAIUsage: openai.ChatCompletionResponseUsage{},
+			expectedLLLMUsage:   LLMTokenUsage{},
+		},
+		{
+			name: "basic usage without cached tokens",
+			metadata: &genai.GenerateContentResponseUsageMetadata{
+				PromptTokenCount:     10,
+				CandidatesTokenCount: 5,
+				TotalTokenCount:      15,
+			},
+			expectedOpenAIUsage: openai.ChatCompletionResponseUsage{
+				PromptTokens:     10,
+				CompletionTokens: 5,
+				TotalTokens:      15,
+			},
+			expectedLLLMUsage: LLMTokenUsage{},
+		},
+		{
+			name: "usage with both cached content and details",
+			metadata: &genai.GenerateContentResponseUsageMetadata{
+				PromptTokenCount:        25,
+				CandidatesTokenCount:    12,
+				TotalTokenCount:         37,
+				CachedContentTokenCount: 8,
+				PromptTokensDetails: []*genai.ModalityTokenCount{
+					{Modality: genai.MediaModalityText, TokenCount: 20},
+					nil, // Should be ignored.
+					{Modality: genai.MediaModalityAudio, TokenCount: 5},
+				},
+				CacheTokensDetails: []*genai.ModalityTokenCount{
+					{Modality: genai.MediaModalityText, TokenCount: 5},
+					nil, // Should be ignored.
+					{Modality: genai.MediaModalityAudio, TokenCount: 3},
+				},
+				CandidatesTokensDetails: []*genai.ModalityTokenCount{
+					{Modality: genai.MediaModalityText, TokenCount: 3},
+					nil, // Should be ignored.
+					{Modality: genai.MediaModalityAudio, TokenCount: 3},
+					{TokenCount: 2}, // Unknown modality, should be ignored.
+				},
+			},
+			expectedOpenAIUsage: openai.ChatCompletionResponseUsage{
+				PromptTokens:     25,
+				CompletionTokens: 12,
+				TotalTokens:      37,
+				PromptTokensDetails: &openai.PromptTokensDetails{
+					TextTokens:   20,
+					AudioTokens:  5,
+					CachedTokens: 8,
+				},
+				CompletionTokensDetails: &openai.CompletionTokensDetails{
+					TextTokens:  3,
+					AudioTokens: 3,
+				},
+			},
+			expectedLLLMUsage: LLMTokenUsage{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			openAIUsage := geminiUsageToOpenAIUsage(tt.metadata)
+			if d := cmp.Diff(tt.expectedOpenAIUsage, openAIUsage, cmpopts.EquateApprox(0, 0.0001)); d != "" {
+				t.Errorf("Usage mismatch (-want +got):\n%s", d)
+			}
+		})
+	}
+}

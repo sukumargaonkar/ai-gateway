@@ -578,11 +578,47 @@ func geminiUsageToOpenAIUsage(metadata *genai.GenerateContentResponseUsageMetada
 		return openai.ChatCompletionResponseUsage{}
 	}
 
-	return openai.ChatCompletionResponseUsage{
+	openAIUsage := openai.ChatCompletionResponseUsage{
 		CompletionTokens: int(metadata.CandidatesTokenCount),
 		PromptTokens:     int(metadata.PromptTokenCount),
 		TotalTokens:      int(metadata.TotalTokenCount),
 	}
+
+	if len(metadata.PromptTokensDetails) > 0 || metadata.CachedContentTokenCount > 0 {
+		openAIUsage.PromptTokensDetails = &openai.PromptTokensDetails{
+			CachedTokens: int(metadata.CachedContentTokenCount),
+		}
+	}
+
+	for _, tc := range metadata.PromptTokensDetails {
+		if tc == nil {
+			continue
+		}
+		switch tc.Modality {
+		case genai.MediaModalityText:
+			openAIUsage.PromptTokensDetails.TextTokens += int(tc.TokenCount)
+		case genai.MediaModalityAudio:
+			openAIUsage.PromptTokensDetails.AudioTokens += int(tc.TokenCount)
+		}
+	}
+
+	if len(metadata.CandidatesTokensDetails) > 0 {
+		openAIUsage.CompletionTokensDetails = &openai.CompletionTokensDetails{}
+		for _, tc := range metadata.CandidatesTokensDetails {
+			if tc == nil {
+				continue
+			}
+			switch tc.Modality {
+			case genai.MediaModalityText:
+				openAIUsage.CompletionTokensDetails.TextTokens += int(tc.TokenCount)
+			case genai.MediaModalityAudio:
+				openAIUsage.CompletionTokensDetails.AudioTokens += int(tc.TokenCount)
+			case "":
+			}
+		}
+	}
+
+	return openAIUsage
 }
 
 // geminiLogprobsToOpenAILogprobs converts Gemini logprobs to OpenAI logprobs.

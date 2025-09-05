@@ -131,9 +131,14 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) ResponseBody(_ map[strin
 	var usage LLMTokenUsage
 	if gcpResp.UsageMetadata != nil {
 		usage = LLMTokenUsage{
-			InputTokens:  uint32(gcpResp.UsageMetadata.PromptTokenCount),     // nolint:gosec
-			OutputTokens: uint32(gcpResp.UsageMetadata.CandidatesTokenCount), // nolint:gosec
-			TotalTokens:  uint32(gcpResp.UsageMetadata.TotalTokenCount),      // nolint:gosec
+			InputTokens:     uint32(gcpResp.UsageMetadata.PromptTokenCount),        // nolint:gosec
+			OutputTokens:    uint32(gcpResp.UsageMetadata.CandidatesTokenCount),    // nolint:gosec
+			TotalTokens:     uint32(gcpResp.UsageMetadata.TotalTokenCount),         // nolint:gosec
+			CacheReadTokens: uint32(gcpResp.UsageMetadata.CachedContentTokenCount), // nolint:gosec
+			// Always 0, as Gemini does not support implicit caching
+			// Cache writes in Gemini are explicit api calls
+			// https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1/projects.locations.cachedContents/create
+			CacheWriteTokens: 0,
 		}
 	}
 
@@ -163,9 +168,11 @@ func (o *openAIToGCPVertexAITranslatorV1ChatCompletion) handleStreamingResponse(
 		// Extract token usage if present in this chunk (typically in the last chunk).
 		if chunk.UsageMetadata != nil {
 			tokenUsage = LLMTokenUsage{
-				InputTokens:  uint32(chunk.UsageMetadata.PromptTokenCount),     //nolint:gosec
-				OutputTokens: uint32(chunk.UsageMetadata.CandidatesTokenCount), //nolint:gosec
-				TotalTokens:  uint32(chunk.UsageMetadata.TotalTokenCount),      //nolint:gosec
+				InputTokens:      uint32(chunk.UsageMetadata.PromptTokenCount),        //nolint:gosec
+				OutputTokens:     uint32(chunk.UsageMetadata.CandidatesTokenCount),    //nolint:gosec
+				TotalTokens:      uint32(chunk.UsageMetadata.TotalTokenCount),         //nolint:gosec
+				CacheReadTokens:  uint32(chunk.UsageMetadata.CachedContentTokenCount), //nolint:gosec
+				CacheWriteTokens: 0,
 			}
 		}
 

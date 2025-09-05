@@ -558,9 +558,11 @@ func (o *openAIToAWSBedrockTranslatorV1ChatCompletion) ResponseBody(_ map[string
 			event := &o.events[i]
 			if usage := event.Usage; usage != nil {
 				tokenUsage = LLMTokenUsage{
-					InputTokens:  uint32(usage.InputTokens),  //nolint:gosec
-					OutputTokens: uint32(usage.OutputTokens), //nolint:gosec
-					TotalTokens:  uint32(usage.TotalTokens),  //nolint:gosec
+					InputTokens:      uint32(usage.InputTokens),      //nolint:gosec
+					OutputTokens:     uint32(usage.OutputTokens),     //nolint:gosec
+					TotalTokens:      uint32(usage.TotalTokens),      //nolint:gosec
+					CacheReadTokens:  uint32(usage.CacheReadTokens),  //nolint:gosec
+					CacheWriteTokens: uint32(usage.CacheWriteTokens), //nolint:gosec
 				}
 			}
 			oaiEvent, ok := o.convertEvent(event)
@@ -597,14 +599,22 @@ func (o *openAIToAWSBedrockTranslatorV1ChatCompletion) ResponseBody(_ map[string
 	// Convert token usage.
 	if bedrockResp.Usage != nil {
 		tokenUsage = LLMTokenUsage{
-			InputTokens:  uint32(bedrockResp.Usage.InputTokens),  //nolint:gosec
-			OutputTokens: uint32(bedrockResp.Usage.OutputTokens), //nolint:gosec
-			TotalTokens:  uint32(bedrockResp.Usage.TotalTokens),  //nolint:gosec
+			InputTokens:      uint32(bedrockResp.Usage.InputTokens),      //nolint:gosec
+			OutputTokens:     uint32(bedrockResp.Usage.OutputTokens),     //nolint:gosec
+			TotalTokens:      uint32(bedrockResp.Usage.TotalTokens),      //nolint:gosec
+			CacheReadTokens:  uint32(bedrockResp.Usage.CacheReadTokens),  //nolint:gosec
+			CacheWriteTokens: uint32(bedrockResp.Usage.CacheWriteTokens), //nolint:gosec
 		}
 		openAIResp.Usage = openai.ChatCompletionResponseUsage{
 			TotalTokens:      bedrockResp.Usage.TotalTokens,
 			PromptTokens:     bedrockResp.Usage.InputTokens,
 			CompletionTokens: bedrockResp.Usage.OutputTokens,
+		}
+
+		if bedrockResp.Usage.CacheReadTokens > 0 {
+			openAIResp.Usage.PromptTokensDetails = &openai.PromptTokensDetails{
+				CachedTokens: bedrockResp.Usage.CacheReadTokens,
+			}
 		}
 	}
 
